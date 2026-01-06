@@ -1,0 +1,2247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>VM Environment</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23333' width='100' height='100' rx='15'/><text x='50' y='68' text-anchor='middle' fill='%234a9eff' font-size='50' font-family='monospace'>VM</text></svg>"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg-primary: #1a1a1a;
+        --bg-secondary: #242424;
+        --bg-tertiary: #2d2d2d;
+        --text-primary: #e0e0e0;
+        --text-secondary: #888;
+        --border-color: #333;
+        --accent: #4a9eff;
+        --accent-hover: #6bb3ff;
+        --success: #22c55e;
+        --warning: #f59e0b;
+        --error: #ef4444;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-height: 100vh;
+        line-height: 1.5;
+      }
+
+      /* ============================================
+       LAUNCHER STYLES
+       ============================================ */
+      .launcher-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: var(--bg-primary);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition:
+          opacity 0.3s,
+          visibility 0.3s;
+      }
+
+      .launcher-overlay.hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .launcher-container {
+        width: 100%;
+        max-width: 600px;
+        padding: 24px;
+      }
+
+      .launcher-header {
+        text-align: center;
+        margin-bottom: 32px;
+      }
+
+      .launcher-logo {
+        max-height: 64px;
+        max-width: 200px;
+        margin-bottom: 16px;
+      }
+
+      .launcher-title {
+        font-size: 1.75rem;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+
+      .launcher-subtitle {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+      }
+
+      .config-section {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 20px;
+      }
+
+      .config-section-title {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--text-secondary);
+        margin-bottom: 16px;
+      }
+
+      .drop-zone {
+        border: 2px dashed var(--border-color);
+        border-radius: 8px;
+        padding: 32px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        margin-bottom: 16px;
+      }
+
+      .drop-zone:hover,
+      .drop-zone.dragover {
+        border-color: var(--accent);
+        background: rgba(74, 158, 255, 0.05);
+      }
+
+      .drop-zone-icon {
+        font-size: 2rem;
+        margin-bottom: 8px;
+        opacity: 0.6;
+      }
+
+      .drop-zone-text {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .drop-zone-text strong {
+        color: var(--accent);
+      }
+
+      .config-divider {
+        display: flex;
+        align-items: center;
+        margin: 16px 0;
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+      }
+
+      .config-divider::before,
+      .config-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--border-color);
+      }
+
+      .config-divider span {
+        padding: 0 12px;
+      }
+
+      .config-textarea {
+        width: 100%;
+        height: 150px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 12px;
+        color: var(--text-primary);
+        font-family: "Monaco", "Consolas", monospace;
+        font-size: 0.85rem;
+        resize: vertical;
+        transition: border-color 0.2s;
+      }
+
+      .config-textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+
+      .config-textarea::placeholder {
+        color: var(--text-secondary);
+        opacity: 0.6;
+      }
+
+      .launcher-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .btn-primary {
+        flex: 1;
+        min-width: 140px;
+        padding: 14px 24px;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        background: var(--accent-hover);
+        transform: translateY(-1px);
+      }
+
+      .btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .btn-secondary {
+        padding: 14px 24px;
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .btn-secondary:hover {
+        background: var(--bg-primary);
+        border-color: var(--accent);
+      }
+
+      .config-status {
+        margin-top: 16px;
+        padding: 12px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        display: none;
+      }
+
+      .config-status.show {
+        display: block;
+      }
+
+      .config-status.success {
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid var(--success);
+        color: var(--success);
+      }
+
+      .config-status.error {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid var(--error);
+        color: var(--error);
+      }
+
+      .quick-start {
+        text-align: center;
+        margin-top: 24px;
+        padding-top: 24px;
+        border-top: 1px solid var(--border-color);
+      }
+
+      .quick-start-text {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        margin-bottom: 12px;
+      }
+
+      .quick-start-link {
+        color: var(--accent);
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .quick-start-link:hover {
+        text-decoration: underline;
+      }
+
+      /* ============================================
+       VM ENVIRONMENT STYLES
+       ============================================ */
+      .vm-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 16px;
+        display: none;
+      }
+
+      .vm-container.active {
+        display: block;
+      }
+
+      .vm-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 0;
+        margin-bottom: 16px;
+        border-bottom: 1px solid var(--border-color);
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .vm-header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .vm-logo {
+        height: 32px;
+        max-width: 120px;
+      }
+
+      .vm-title {
+        font-size: 1.1rem;
+        font-weight: 500;
+      }
+
+      .vm-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--warning);
+        flex-shrink: 0;
+      }
+
+      .status-dot.ready {
+        background: var(--success);
+      }
+
+      .terminal-wrapper {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .terminal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border-color);
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .terminal-title {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        font-family: monospace;
+      }
+
+      .terminal-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        padding: 6px 12px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: all 0.15s;
+        white-space: nowrap;
+        min-height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .btn:hover:not(:disabled) {
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        border-color: var(--accent);
+      }
+
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .btn.hidden {
+        display: none !important;
+      }
+
+      .screen-wrapper {
+        position: relative;
+        min-height: 500px;
+        background: #000;
+      }
+
+      #screen_container {
+        background: #000;
+        min-height: 500px;
+        width: 100%;
+      }
+
+      #screen_container > div {
+        white-space: pre;
+        font-family: "Consolas", "Monaco", "Courier New", monospace !important;
+        font-size: 14px !important;
+        line-height: 1.3 !important;
+        padding: 8px !important;
+      }
+
+      #screen_container canvas {
+        display: none;
+      }
+
+      .mobile-keyboard-input {
+        position: absolute;
+        left: -9999px;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+      }
+
+      .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.95);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        z-index: 100;
+        transition: opacity 0.2s;
+      }
+
+      .loading-overlay.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid var(--bg-tertiary);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .loading-text {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+      }
+
+      .vm-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 0;
+        margin-top: 12px;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .vm-footer-left {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .autosave-status.saving {
+        color: var(--accent);
+      }
+
+      /* Inject Panel */
+      .inject-panel {
+        margin-top: 16px;
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .inject-panel.hidden {
+        display: none;
+      }
+
+      .inject-header {
+        padding: 10px 12px;
+        background: var(--bg-tertiary);
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        user-select: none;
+      }
+
+      .inject-header:hover {
+        color: var(--text-primary);
+      }
+
+      .inject-content {
+        display: none;
+        padding: 12px;
+      }
+
+      .inject-content.open {
+        display: block;
+      }
+
+      .inject-row {
+        margin-bottom: 10px;
+      }
+
+      .inject-row label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+      }
+
+      .inject-row input[type="text"],
+      .inject-row textarea {
+        width: 100%;
+        padding: 8px 10px;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        color: var(--text-primary);
+        font-family: monospace;
+        font-size: 0.85rem;
+      }
+
+      .inject-row textarea {
+        height: 120px;
+        resize: vertical;
+      }
+
+      .inject-buttons {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      /* Toast Notification */
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 0.85rem;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: all 0.2s;
+        z-index: 2000;
+        max-width: 90vw;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .toast.error {
+        border-color: var(--error);
+        color: var(--error);
+      }
+
+      .toast.success {
+        border-color: var(--success);
+        color: var(--success);
+      }
+
+      /* Hidden inputs */
+      .hidden-input {
+        display: none;
+      }
+
+      /* Responsive */
+      @media (max-width: 640px) {
+        .launcher-container {
+          padding: 16px;
+        }
+
+        .config-section {
+          padding: 16px;
+        }
+
+        .launcher-actions {
+          flex-direction: column;
+        }
+
+        .btn-primary,
+        .btn-secondary {
+          width: 100%;
+        }
+
+        .terminal-actions {
+          width: 100%;
+          justify-content: flex-start;
+        }
+
+        .btn {
+          padding: 8px 10px;
+          font-size: 0.7rem;
+        }
+
+        .screen-wrapper {
+          min-height: 400px;
+        }
+
+        #screen_container {
+          min-height: 400px;
+        }
+
+        #screen_container > div {
+          font-size: 11px !important;
+        }
+      }
+
+      /* Fullscreen mode */
+      .screen-wrapper:fullscreen {
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .screen-wrapper:fullscreen #screen_container {
+        max-width: 100%;
+        max-height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- ============================================
+       LAUNCHER OVERLAY
+       ============================================ -->
+    <div class="launcher-overlay" id="launcherOverlay">
+      <div class="launcher-container">
+        <div class="launcher-header">
+          <img
+            src=""
+            alt=""
+            class="launcher-logo"
+            id="launcherLogo"
+            style="display: none"
+          />
+          <h1 class="launcher-title" id="launcherTitle">VM Environment</h1>
+          <p class="launcher-subtitle" id="launcherSubtitle">
+            Load a configuration to start
+          </p>
+        </div>
+
+        <div class="config-section">
+          <div class="config-section-title">Configuration</div>
+
+          <div class="drop-zone" id="dropZone">
+            <div class="drop-zone-icon">📄</div>
+            <div class="drop-zone-text">
+              <strong>Drop configuration file here</strong><br />
+              or click to browse
+            </div>
+          </div>
+
+          <div class="config-divider"><span>or paste JSON</span></div>
+
+          <textarea
+            class="config-textarea"
+            id="configTextarea"
+            placeholder='{"branding": {"title": "My VM"}, "vm": {...}}'
+          ></textarea>
+
+          <div class="config-status" id="configStatus"></div>
+        </div>
+
+        <div class="launcher-actions">
+          <button
+            class="btn-primary"
+            id="btnLaunch"
+            onclick="launchWithConfig()"
+          >
+            Launch VM
+          </button>
+          <button class="btn-secondary" onclick="showExampleConfig()">
+            Example Config
+          </button>
+        </div>
+
+        <div class="quick-start">
+          <p class="quick-start-text">No configuration? Start with defaults.</p>
+          <a class="quick-start-link" onclick="launchWithDefaults()"
+            >Quick Start →</a
+          >
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================
+       VM ENVIRONMENT
+       ============================================ -->
+    <div class="vm-container" id="vmContainer">
+      <header class="vm-header">
+        <div class="vm-header-left">
+          <img
+            src=""
+            alt=""
+            class="vm-logo"
+            id="vmLogo"
+            style="display: none"
+          />
+          <div class="vm-title" id="vmTitle">Linux Environment</div>
+        </div>
+        <div class="vm-status">
+          <div class="status-dot" id="statusDot"></div>
+          <span id="statusText">Initializing...</span>
+        </div>
+      </header>
+
+      <div class="terminal-wrapper">
+        <div class="terminal-header">
+          <div class="terminal-title">bash</div>
+          <div class="terminal-actions">
+            <button
+              class="btn"
+              onclick="saveStateToFile()"
+              id="btnSave"
+              disabled
+            >
+              Save
+            </button>
+            <button
+              class="btn"
+              onclick="document.getElementById('loadFileInput').click()"
+              id="btnLoad"
+            >
+              Load
+            </button>
+            <button
+              class="btn"
+              onclick="downloadRecording()"
+              id="btnRecording"
+              disabled
+            >
+              Download Session
+            </button>
+            <button
+              class="btn"
+              onclick="resetEmulator()"
+              id="btnReset"
+              disabled
+            >
+              Reset
+            </button>
+            <button class="btn" onclick="toggleFullscreen()" id="btnFullscreen">
+              Fullscreen
+            </button>
+            <button
+              class="btn"
+              onclick="document.getElementById('isoFileInput').click()"
+              id="btnAttachISO"
+            >
+              Attach ISO
+            </button>
+          </div>
+        </div>
+
+        <div class="screen-wrapper" id="screenWrapper">
+          <div class="loading-overlay" id="loadingOverlay">
+            <div class="spinner"></div>
+            <div class="loading-text" id="loadingText">Starting...</div>
+          </div>
+          <div id="screen_container">
+            <div></div>
+            <canvas style="display: none"></canvas>
+          </div>
+          <input
+            type="text"
+            id="mobileKeyboardInput"
+            class="mobile-keyboard-input"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+        </div>
+      </div>
+
+      <div class="vm-footer">
+        <div class="vm-footer-left">
+          <span id="uptimeDisplay">Uptime: 0:00</span>
+          <span class="autosave-status" id="autosaveStatus"
+            >Auto-save: Off</span
+          >
+        </div>
+        <div>
+          <span id="lastSaveDisplay"></span>
+        </div>
+      </div>
+
+      <!-- Inject Panel -->
+      <div class="inject-panel" id="injectPanel">
+        <div class="inject-header" onclick="toggleInjectPanel()">
+          <span id="injectPanelToggle">▶ Create File</span>
+        </div>
+        <div class="inject-content" id="injectContent">
+          <div class="inject-row">
+            <label for="injectFilename">Filename:</label>
+            <input
+              type="text"
+              id="injectFilename"
+              placeholder="/root/script.sh"
+              value="/root/script.sh"
+            />
+          </div>
+          <div class="inject-row">
+            <label for="injectScript">Content:</label>
+            <textarea
+              id="injectScript"
+              placeholder="#!/bin/bash&#10;echo 'Hello World'"
+            ></textarea>
+          </div>
+          <div class="inject-row inject-buttons">
+            <button class="btn" onclick="injectFile()" id="btnInject" disabled>
+              Create File
+            </button>
+            <button
+              class="btn"
+              onclick="injectAndRun()"
+              id="btnInjectRun"
+              disabled
+            >
+              Create & Run
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hidden File Inputs -->
+    <input
+      type="file"
+      id="loadFileInput"
+      class="hidden-input"
+      accept=".bin,.state"
+      onchange="loadStateFromFile(event)"
+    />
+    <input
+      type="file"
+      id="isoFileInput"
+      class="hidden-input"
+      accept=".iso,.enc"
+      onchange="attachISO(event)"
+    />
+    <input
+      type="file"
+      id="configFileInput"
+      class="hidden-input"
+      accept=".json"
+      onchange="handleConfigFileSelect(event)"
+    />
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- v86 Library -->
+    <script src="assets/libv86.js"></script>
+
+    <script>
+      // ============================================
+      // DEFAULT CONFIGURATION
+      // ============================================
+      const DEFAULT_CONFIG = {
+        branding: {
+          title: "Linux Environment",
+          subtitle: "",
+          logo_url: null,
+          favicon_url: null,
+          theme: {
+            accent: "#4a9eff",
+            bg_primary: "#1a1a1a",
+            bg_secondary: "#242424",
+            bg_tertiary: "#2d2d2d",
+            text_primary: "#e0e0e0",
+            text_secondary: "#888",
+          },
+        },
+        vm: {
+          memory_mb: 1024,
+          vga_memory_mb: 8,
+          bzimage_url: "assets/images/bzImage",
+          initrd_url: "assets/images/rootfs.cpio.gz",
+          bios_url: "assets/bios/seabios.bin",
+          vga_bios_url: "assets/bios/vgabios.bin",
+          cmdline: "console=ttyS0 rw init=/sbin/init rootflags=size=80%",
+          startup_iso_url: null,
+          startup_iso_mount_path: "/mnt/cdrom",
+        },
+        features: {
+          save_button: true,
+          load_button: true,
+          reset_button: true,
+          fullscreen_button: true,
+          attach_iso_button: true,
+          download_session_button: true,
+          inject_panel: true,
+          autosave_enabled: true,
+          autosave_interval_ms: 180000,
+        },
+        encryption: {
+          enabled: false,
+          key: null,
+        },
+      };
+
+      // ============================================
+      // GLOBAL STATE
+      // ============================================
+      let activeConfig = null;
+      let emulator = null;
+      let startTime = null;
+      let bootDetected = false;
+      let autosaveTimer = null;
+      let db = null;
+      let encryptionKey = null;
+
+      // Session Recording
+      let sessionRecording = {
+        started: null,
+        snapshots: [],
+        keystrokes: [],
+        isRecording: false,
+        snapshotInterval: null,
+      };
+
+      // ============================================
+      // ENCRYPTION MODULE (AES-GCM via Web Crypto)
+      // ============================================
+      async function deriveKey(password) {
+        const encoder = new TextEncoder();
+        const keyMaterial = await crypto.subtle.importKey(
+          "raw",
+          encoder.encode(password),
+          "PBKDF2",
+          false,
+          ["deriveBits", "deriveKey"],
+        );
+
+        return crypto.subtle.deriveKey(
+          {
+            name: "PBKDF2",
+            salt: encoder.encode("vm-launcher-salt-v1"),
+            iterations: 100000,
+            hash: "SHA-256",
+          },
+          keyMaterial,
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["decrypt"],
+        );
+      }
+
+      async function decryptAsset(encryptedData, key) {
+        // Format: [12 bytes IV][encrypted data]
+        const iv = encryptedData.slice(0, 12);
+        const data = encryptedData.slice(12);
+
+        const decrypted = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: iv },
+          key,
+          data,
+        );
+
+        return new Uint8Array(decrypted);
+      }
+
+      function isEncryptedFormat(data) {
+        // Check for our magic header: "VMENC1" (6 bytes)
+        if (data.length < 6) return false;
+        const header = new TextDecoder().decode(data.slice(0, 6));
+        return header === "VMENC1";
+      }
+
+      async function loadAsset(url, progressCallback) {
+        const response = await fetch(url);
+        if (!response.ok)
+          throw new Error(`Failed to load ${url}: ${response.status}`);
+
+        const contentLength = response.headers.get("content-length");
+        const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+        const reader = response.body.getReader();
+        const chunks = [];
+        let loaded = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.length;
+          if (progressCallback && total) {
+            progressCallback(loaded / total);
+          }
+        }
+
+        // Combine chunks
+        const data = new Uint8Array(loaded);
+        let offset = 0;
+        for (const chunk of chunks) {
+          data.set(chunk, offset);
+          offset += chunk.length;
+        }
+
+        // Check if encrypted
+        if (isEncryptedFormat(data) && encryptionKey) {
+          // Skip magic header (6 bytes) before decrypting
+          return await decryptAsset(data.slice(6), encryptionKey);
+        }
+
+        return data;
+      }
+
+      // ============================================
+      // URL PARAMETER PARSING
+      // ============================================
+      function parseURLParams() {
+        const params = new URLSearchParams(window.location.search);
+        const overrides = {};
+
+        // Check for full config (base64 encoded)
+        if (params.has("config")) {
+          try {
+            const decoded = atob(params.get("config"));
+            return JSON.parse(decoded);
+          } catch (e) {
+            console.error("Failed to parse config param:", e);
+          }
+        }
+
+        // Individual parameter mappings
+        const paramMap = {
+          // Branding
+          title: "branding.title",
+          subtitle: "branding.subtitle",
+          logo: "branding.logo_url",
+          favicon: "branding.favicon_url",
+          accent: "branding.theme.accent",
+          // VM
+          memory: "vm.memory_mb",
+          vga_memory: "vm.vga_memory_mb",
+          bzimage: "vm.bzimage_url",
+          initrd: "vm.initrd_url",
+          bios: "vm.bios_url",
+          vga_bios: "vm.vga_bios_url",
+          cmdline: "vm.cmdline",
+          iso: "vm.startup_iso_url",
+          iso_mount: "vm.startup_iso_mount_path",
+          // Features (boolean)
+          save: "features.save_button",
+          load: "features.load_button",
+          reset: "features.reset_button",
+          fullscreen: "features.fullscreen_button",
+          attach_iso: "features.attach_iso_button",
+          download_session: "features.download_session_button",
+          inject: "features.inject_panel",
+          autosave: "features.autosave_enabled",
+          autosave_interval: "features.autosave_interval_ms",
+          // Encryption
+          key: "encryption.key",
+          encrypted: "encryption.enabled",
+        };
+
+        for (const [param, path] of Object.entries(paramMap)) {
+          if (params.has(param)) {
+            let value = params.get(param);
+
+            // Parse booleans
+            if (value === "true") value = true;
+            else if (value === "false") value = false;
+            // Parse numbers
+            else if (/^\d+$/.test(value)) value = parseInt(value, 10);
+
+            setNestedValue(overrides, path, value);
+          }
+        }
+
+        return Object.keys(overrides).length > 0 ? overrides : null;
+      }
+
+      function setNestedValue(obj, path, value) {
+        const parts = path.split(".");
+        let current = obj;
+
+        for (let i = 0; i < parts.length - 1; i++) {
+          if (!current[parts[i]]) current[parts[i]] = {};
+          current = current[parts[i]];
+        }
+
+        current[parts[parts.length - 1]] = value;
+      }
+
+      function getNestedValue(obj, path) {
+        return path.split(".").reduce((curr, key) => curr?.[key], obj);
+      }
+
+      // ============================================
+      // CONFIGURATION MANAGEMENT
+      // ============================================
+      function deepMerge(target, source) {
+        const result = { ...target };
+
+        for (const key in source) {
+          if (
+            source[key] &&
+            typeof source[key] === "object" &&
+            !Array.isArray(source[key])
+          ) {
+            result[key] = deepMerge(result[key] || {}, source[key]);
+          } else if (source[key] !== undefined) {
+            result[key] = source[key];
+          }
+        }
+
+        return result;
+      }
+
+      function validateConfig(config) {
+        const errors = [];
+
+        // Check required VM settings
+        if (!config.vm?.bzimage_url) {
+          errors.push("Missing vm.bzimage_url");
+        }
+        if (!config.vm?.initrd_url) {
+          errors.push("Missing vm.initrd_url");
+        }
+
+        // Validate memory
+        if (
+          config.vm?.memory_mb &&
+          (config.vm.memory_mb < 128 || config.vm.memory_mb > 4096)
+        ) {
+          errors.push("vm.memory_mb must be between 128 and 4096");
+        }
+
+        return errors;
+      }
+
+      async function loadConfigFromURL(url) {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return await response.json();
+        } catch (e) {
+          throw new Error(`Failed to load config from ${url}: ${e.message}`);
+        }
+      }
+
+      function showConfigStatus(message, type) {
+        const status = document.getElementById("configStatus");
+        status.textContent = message;
+        status.className = `config-status show ${type}`;
+      }
+
+      function hideConfigStatus() {
+        document.getElementById("configStatus").className = "config-status";
+      }
+
+      // ============================================
+      // LAUNCHER UI
+      // ============================================
+      function setupLauncher() {
+        const dropZone = document.getElementById("dropZone");
+        const configFileInput = document.getElementById("configFileInput");
+        const configTextarea = document.getElementById("configTextarea");
+
+        // Click to browse
+        dropZone.addEventListener("click", () => configFileInput.click());
+
+        // Drag and drop
+        dropZone.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          dropZone.classList.add("dragover");
+        });
+
+        dropZone.addEventListener("dragleave", () => {
+          dropZone.classList.remove("dragover");
+        });
+
+        dropZone.addEventListener("drop", (e) => {
+          e.preventDefault();
+          dropZone.classList.remove("dragover");
+
+          const file = e.dataTransfer.files[0];
+          if (file) handleConfigFile(file);
+        });
+
+        // Textarea validation on input
+        configTextarea.addEventListener("input", () => {
+          const text = configTextarea.value.trim();
+          if (!text) {
+            hideConfigStatus();
+            return;
+          }
+
+          try {
+            const config = JSON.parse(text);
+            const errors = validateConfig(deepMerge(DEFAULT_CONFIG, config));
+
+            if (errors.length > 0) {
+              showConfigStatus(`⚠️ ${errors.join(", ")}`, "error");
+            } else {
+              showConfigStatus("✓ Valid configuration", "success");
+            }
+          } catch (e) {
+            showConfigStatus(`⚠️ Invalid JSON: ${e.message}`, "error");
+          }
+        });
+      }
+
+      function handleConfigFileSelect(event) {
+        const file = event.target.files[0];
+        if (file) handleConfigFile(file);
+        event.target.value = "";
+      }
+
+      async function handleConfigFile(file) {
+        try {
+          const text = await file.text();
+          document.getElementById("configTextarea").value = text;
+
+          const config = JSON.parse(text);
+          const errors = validateConfig(deepMerge(DEFAULT_CONFIG, config));
+
+          if (errors.length > 0) {
+            showConfigStatus(
+              `⚠️ Loaded with warnings: ${errors.join(", ")}`,
+              "error",
+            );
+          } else {
+            showConfigStatus(`✓ Loaded ${file.name}`, "success");
+          }
+        } catch (e) {
+          showConfigStatus(`⚠️ Failed to parse: ${e.message}`, "error");
+        }
+      }
+
+      function showExampleConfig() {
+        const example = {
+          branding: {
+            title: "My Custom VM",
+            subtitle: "Linux Environment",
+            logo_url: "https://example.com/logo.png",
+            theme: {
+              accent: "#10b981",
+            },
+          },
+          vm: {
+            memory_mb: 1024,
+            bzimage_url: "assets/images/bzImage",
+            initrd_url: "assets/images/rootfs.cpio.gz",
+            startup_iso_url: "assets/exercise.iso",
+          },
+          features: {
+            attach_iso_button: false,
+            inject_panel: true,
+            autosave_enabled: true,
+          },
+          encryption: {
+            enabled: false,
+            key: null,
+          },
+        };
+
+        document.getElementById("configTextarea").value = JSON.stringify(
+          example,
+          null,
+          2,
+        );
+        showConfigStatus("✓ Example config loaded", "success");
+      }
+
+      function launchWithDefaults() {
+        activeConfig = deepMerge({}, DEFAULT_CONFIG);
+        startVM();
+      }
+
+      function launchWithConfig() {
+        const text = document.getElementById("configTextarea").value.trim();
+
+        if (!text) {
+          // No config provided, use defaults
+          launchWithDefaults();
+          return;
+        }
+
+        try {
+          const userConfig = JSON.parse(text);
+          activeConfig = deepMerge(DEFAULT_CONFIG, userConfig);
+
+          const errors = validateConfig(activeConfig);
+          if (errors.length > 0) {
+            showConfigStatus(`⚠️ Cannot launch: ${errors.join(", ")}`, "error");
+            return;
+          }
+
+          startVM();
+        } catch (e) {
+          showConfigStatus(`⚠️ Invalid JSON: ${e.message}`, "error");
+        }
+      }
+
+      function hideLauncher() {
+        document.getElementById("launcherOverlay").classList.add("hidden");
+        document.getElementById("vmContainer").classList.add("active");
+      }
+
+      function showLauncher() {
+        document.getElementById("launcherOverlay").classList.remove("hidden");
+        document.getElementById("vmContainer").classList.remove("active");
+      }
+
+      // ============================================
+      // VM UI HELPERS
+      // ============================================
+      function applyBranding(config) {
+        const { branding } = config;
+
+        // Title
+        document.title = branding.title || "VM Environment";
+        document.getElementById("vmTitle").textContent =
+          branding.title || "Linux Environment";
+        document.getElementById("launcherTitle").textContent =
+          branding.title || "VM Environment";
+
+        if (branding.subtitle) {
+          document.getElementById("launcherSubtitle").textContent =
+            branding.subtitle;
+        }
+
+        // Logo
+        if (branding.logo_url) {
+          const vmLogo = document.getElementById("vmLogo");
+          const launcherLogo = document.getElementById("launcherLogo");
+
+          vmLogo.src = branding.logo_url;
+          vmLogo.style.display = "block";
+          vmLogo.alt = branding.title || "Logo";
+
+          launcherLogo.src = branding.logo_url;
+          launcherLogo.style.display = "block";
+          launcherLogo.alt = branding.title || "Logo";
+        }
+
+        // Favicon
+        if (branding.favicon_url) {
+          const link =
+            document.querySelector("link[rel*='icon']") ||
+            document.createElement("link");
+          link.rel = "icon";
+          link.href = branding.favicon_url;
+          document.head.appendChild(link);
+        }
+
+        // Theme colors
+        if (branding.theme) {
+          const root = document.documentElement;
+          const theme = branding.theme;
+
+          if (theme.accent) root.style.setProperty("--accent", theme.accent);
+          if (theme.bg_primary)
+            root.style.setProperty("--bg-primary", theme.bg_primary);
+          if (theme.bg_secondary)
+            root.style.setProperty("--bg-secondary", theme.bg_secondary);
+          if (theme.bg_tertiary)
+            root.style.setProperty("--bg-tertiary", theme.bg_tertiary);
+          if (theme.text_primary)
+            root.style.setProperty("--text-primary", theme.text_primary);
+          if (theme.text_secondary)
+            root.style.setProperty("--text-secondary", theme.text_secondary);
+        }
+      }
+
+      function applyFeatureFlags(config) {
+        const { features } = config;
+
+        // Button visibility
+        const buttonMap = {
+          btnSave: features.save_button,
+          btnLoad: features.load_button,
+          btnReset: features.reset_button,
+          btnFullscreen: features.fullscreen_button,
+          btnAttachISO: features.attach_iso_button,
+          btnRecording: features.download_session_button,
+        };
+
+        for (const [id, visible] of Object.entries(buttonMap)) {
+          const btn = document.getElementById(id);
+          if (btn) btn.classList.toggle("hidden", visible === false);
+        }
+
+        // Inject panel
+        const injectPanel = document.getElementById("injectPanel");
+        if (injectPanel) {
+          injectPanel.classList.toggle(
+            "hidden",
+            features.inject_panel === false,
+          );
+        }
+
+        // Autosave status
+        if (features.autosave_enabled === false) {
+          document.getElementById("autosaveStatus").textContent =
+            "Auto-save: Off";
+        }
+      }
+
+      function updateStatus(text, ready) {
+        const statusText = document.getElementById("statusText");
+        const statusDot = document.getElementById("statusDot");
+        if (statusText) statusText.textContent = text;
+        if (statusDot) statusDot.classList.toggle("ready", ready === true);
+      }
+
+      function setLoading(show, text) {
+        const overlay = document.getElementById("loadingOverlay");
+        const loadingText = document.getElementById("loadingText");
+        if (overlay) overlay.classList.toggle("hidden", !show);
+        if (loadingText && text) loadingText.textContent = text;
+      }
+
+      function showToast(message, type = "info", duration = 3000) {
+        const toast = document.getElementById("toast");
+        toast.textContent = message;
+        toast.className = "toast show " + type;
+        setTimeout(() => toast.classList.remove("show"), duration);
+      }
+
+      function setButtonsEnabled(enabled) {
+        const buttons = [
+          "btnSave",
+          "btnReset",
+          "btnRecording",
+          "btnInject",
+          "btnInjectRun",
+        ];
+        buttons.forEach((id) => {
+          const btn = document.getElementById(id);
+          if (btn && !btn.classList.contains("hidden")) {
+            btn.disabled = !enabled;
+          }
+        });
+      }
+
+      function formatUptime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, "0")}`;
+      }
+
+      function updateUptime() {
+        if (startTime) {
+          const uptime = Math.floor((Date.now() - startTime) / 1000);
+          document.getElementById("uptimeDisplay").textContent =
+            `Uptime: ${formatUptime(uptime)}`;
+        }
+      }
+
+      // ============================================
+      // INDEXEDDB FOR AUTO-SAVE
+      // ============================================
+      function initDB() {
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open("vm_launcher_state", 1);
+
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            db = request.result;
+            resolve(db);
+          };
+
+          request.onupgradeneeded = (event) => {
+            const database = event.target.result;
+            if (!database.objectStoreNames.contains("states")) {
+              const store = database.createObjectStore("states", {
+                keyPath: "id",
+              });
+              store.createIndex("timestamp", "timestamp", { unique: false });
+            }
+          };
+        });
+      }
+
+      async function saveStateToDB(state, isAuto = false) {
+        if (!db) return;
+
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction(["states"], "readwrite");
+          const store = transaction.objectStore("states");
+
+          const record = {
+            id: isAuto ? "autosave_" + Date.now() : "manual_" + Date.now(),
+            timestamp: Date.now(),
+            isAuto: isAuto,
+            state: state,
+          };
+
+          const request = store.add(record);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+
+          if (isAuto) cleanupOldAutosaves();
+        });
+      }
+
+      async function cleanupOldAutosaves() {
+        if (!db) return;
+
+        const maxSaves = activeConfig?.features?.max_autosaves || 3;
+        const transaction = db.transaction(["states"], "readwrite");
+        const store = transaction.objectStore("states");
+        const index = store.index("timestamp");
+
+        const request = index.openCursor(null, "prev");
+        let autoCount = 0;
+
+        request.onsuccess = (event) => {
+          const cursor = event.target.result;
+          if (cursor) {
+            if (cursor.value.isAuto) {
+              autoCount++;
+              if (autoCount > maxSaves) {
+                cursor.delete();
+              }
+            }
+            cursor.continue();
+          }
+        };
+      }
+
+      async function getLatestState() {
+        if (!db) return null;
+
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction(["states"], "readonly");
+          const store = transaction.objectStore("states");
+          const index = store.index("timestamp");
+
+          const request = index.openCursor(null, "prev");
+          request.onsuccess = (event) => {
+            const cursor = event.target.result;
+            resolve(cursor ? cursor.value : null);
+          };
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      async function checkForSavedState() {
+        try {
+          await initDB();
+          const latest = await getLatestState();
+
+          if (latest) {
+            const age = Date.now() - latest.timestamp;
+            const ageMinutes = Math.floor(age / 60000);
+            const ageText =
+              ageMinutes < 60
+                ? `${ageMinutes} min ago`
+                : `${Math.floor(ageMinutes / 60)}h ${ageMinutes % 60}m ago`;
+
+            if (confirm(`Found saved state from ${ageText}. Restore it?`)) {
+              return latest.state;
+            }
+          }
+        } catch (error) {
+          console.error("Error checking saved state:", error);
+        }
+        return null;
+      }
+
+      // ============================================
+      // SESSION RECORDING
+      // ============================================
+      function startRecording() {
+        sessionRecording = {
+          started: Date.now(),
+          snapshots: [],
+          keystrokes: [],
+          isRecording: true,
+          snapshotInterval: null,
+        };
+
+        sessionRecording.snapshotInterval = setInterval(
+          captureTerminalSnapshot,
+          1000,
+        );
+        console.log("Session recording started");
+      }
+
+      function captureTerminalSnapshot() {
+        if (!sessionRecording.isRecording) return;
+
+        const terminal = document.querySelector("#screen_container > div");
+        if (!terminal) return;
+
+        const content = terminal.innerHTML;
+        const lastSnapshot =
+          sessionRecording.snapshots[sessionRecording.snapshots.length - 1];
+
+        if (lastSnapshot && lastSnapshot.content === content) return;
+
+        sessionRecording.snapshots.push({
+          t: Date.now() - sessionRecording.started,
+          content: content,
+        });
+      }
+
+      function recordKeystroke(key, modifiers) {
+        if (!sessionRecording.isRecording) return;
+
+        sessionRecording.keystrokes.push({
+          t: Date.now() - sessionRecording.started,
+          key: key,
+          ...modifiers,
+        });
+      }
+
+      function stopRecording() {
+        if (sessionRecording.snapshotInterval) {
+          clearInterval(sessionRecording.snapshotInterval);
+          sessionRecording.snapshotInterval = null;
+        }
+        sessionRecording.isRecording = false;
+      }
+
+      function downloadRecording() {
+        captureTerminalSnapshot();
+
+        const recording = {
+          version: 2,
+          format: "snapshots",
+          config: {
+            title: activeConfig?.branding?.title,
+          },
+          started: new Date(sessionRecording.started).toISOString(),
+          duration: Date.now() - sessionRecording.started,
+          snapshots: sessionRecording.snapshots,
+          keystrokes: sessionRecording.keystrokes,
+        };
+
+        const blob = new Blob([JSON.stringify(recording, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `session-${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        showToast(
+          `Session saved (${sessionRecording.snapshots.length} snapshots)`,
+          "success",
+        );
+      }
+
+      // ============================================
+      // FILE INJECTION
+      // ============================================
+      function toggleInjectPanel() {
+        const content = document.getElementById("injectContent");
+        const toggle = document.getElementById("injectPanelToggle");
+        content.classList.toggle("open");
+        toggle.textContent = content.classList.contains("open")
+          ? "▼ Create File"
+          : "▶ Create File";
+      }
+
+      function injectFile() {
+        if (!emulator) return;
+
+        const filename = document.getElementById("injectFilename").value.trim();
+        const content = document.getElementById("injectScript").value;
+
+        if (!filename) {
+          showToast("Please enter a filename", "error");
+          return;
+        }
+
+        const base64Content = btoa(unescape(encodeURIComponent(content)));
+        const command = `echo '${base64Content}' | base64 -d > ${filename}\n`;
+
+        emulator.serial0_send(command);
+        showToast(`Creating ${filename}...`, "success");
+      }
+
+      function injectAndRun() {
+        if (!emulator) return;
+
+        const filename = document.getElementById("injectFilename").value.trim();
+        const content = document.getElementById("injectScript").value;
+
+        if (!filename) {
+          showToast("Please enter a filename", "error");
+          return;
+        }
+
+        const base64Content = btoa(unescape(encodeURIComponent(content)));
+        const dir = filename.substring(0, filename.lastIndexOf("/")) || ".";
+
+        const commands =
+          [
+            `echo '${base64Content}' | base64 -d > ${filename}`,
+            `chmod +x ${filename}`,
+            `cd ${dir}`,
+            filename,
+          ].join(" && ") + "\n";
+
+        emulator.serial0_send(commands);
+        showToast(`Creating and running ${filename}...`, "success");
+      }
+
+      // ============================================
+      // MOBILE KEYBOARD
+      // ============================================
+      function setupMobileKeyboard() {
+        const isMobile =
+          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+            navigator.userAgent,
+          );
+        if (!isMobile) return;
+
+        const screenContainer = document.getElementById("screen_container");
+        const mobileInput = document.getElementById("mobileKeyboardInput");
+
+        screenContainer.addEventListener("click", () => mobileInput.focus());
+
+        mobileInput.addEventListener("blur", () => {
+          setTimeout(() => {
+            if (bootDetected && document.activeElement !== mobileInput) {
+              mobileInput.focus();
+            }
+          }, 100);
+        });
+
+        mobileInput.addEventListener("beforeinput", (e) => {
+          if (!emulator) return;
+
+          if (e.inputType === "insertText" && e.data) {
+            for (const char of e.data) {
+              emulator.keyboard_send_text(char);
+            }
+            e.preventDefault();
+          } else if (e.inputType === "deleteContentBackward") {
+            emulator.keyboard_send_scancodes([0x0e]);
+            e.preventDefault();
+          }
+        });
+
+        mobileInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (emulator) emulator.keyboard_send_scancodes([0x1c]);
+          }
+        });
+
+        setInterval(() => {
+          if (mobileInput.value.length > 0) mobileInput.value = "";
+        }, 100);
+      }
+
+      // ============================================
+      // STATE SAVE/RESTORE
+      // ============================================
+      async function saveStateToFile() {
+        if (!emulator) return;
+
+        try {
+          updateStatus("Saving...", true);
+          const state = await emulator.save_state();
+
+          const blob = new Blob([state], { type: "application/octet-stream" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `vm-state-${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.bin`;
+          a.click();
+          URL.revokeObjectURL(url);
+
+          updateStatus("Running", true);
+          showToast("State saved to file", "success");
+        } catch (error) {
+          console.error("Save failed:", error);
+          showToast("Failed to save state", "error");
+          updateStatus("Running", true);
+        }
+      }
+
+      async function loadStateFromFile(event) {
+        const file = event.target.files[0];
+        if (!file || !emulator) return;
+
+        try {
+          const buffer = await file.arrayBuffer();
+          await restoreStateFromData(buffer);
+        } catch (error) {
+          console.error("Restore failed:", error);
+          setLoading(false);
+          updateStatus("Running", true);
+          showToast("Failed to restore state", "error");
+        }
+
+        event.target.value = "";
+      }
+
+      async function restoreStateFromData(stateData) {
+        if (!emulator || !stateData) return false;
+
+        try {
+          setLoading(true, "Restoring state...");
+          updateStatus("Restoring...", false);
+
+          let buffer = stateData;
+          if (stateData instanceof Uint8Array) {
+            buffer = stateData.buffer;
+          } else if (!(stateData instanceof ArrayBuffer)) {
+            buffer = new Uint8Array(stateData).buffer;
+          }
+
+          await emulator.restore_state(buffer);
+          emulator.run();
+
+          bootDetected = true;
+          setLoading(false);
+          updateStatus("Running", true);
+          setButtonsEnabled(true);
+          startTime = Date.now();
+
+          setInterval(updateUptime, 1000);
+          startAutosave();
+          startRecording();
+          setupMobileKeyboard();
+
+          showToast("State restored", "success");
+          return true;
+        } catch (error) {
+          console.error("Restore failed:", error);
+          showToast("Failed to restore state: " + error.message, "error");
+          return false;
+        }
+      }
+
+      async function performAutosave() {
+        if (!emulator || !activeConfig?.features?.autosave_enabled) return;
+
+        try {
+          const statusEl = document.getElementById("autosaveStatus");
+          statusEl.textContent = "Saving...";
+          statusEl.classList.add("saving");
+
+          const state = await emulator.save_state();
+          await saveStateToDB(state, true);
+
+          const now = new Date().toLocaleTimeString();
+          document.getElementById("lastSaveDisplay").textContent =
+            `Last auto-save: ${now}`;
+
+          statusEl.textContent = "Auto-save: On";
+          statusEl.classList.remove("saving");
+        } catch (error) {
+          console.error("Auto-save failed:", error);
+          document.getElementById("autosaveStatus").textContent =
+            "Auto-save: Error";
+        }
+      }
+
+      function startAutosave() {
+        if (!activeConfig?.features?.autosave_enabled) {
+          document.getElementById("autosaveStatus").textContent =
+            "Auto-save: Off";
+          return;
+        }
+
+        document.getElementById("autosaveStatus").textContent = "Auto-save: On";
+
+        setTimeout(performAutosave, 30000);
+
+        const interval = activeConfig?.features?.autosave_interval_ms || 180000;
+        autosaveTimer = setInterval(performAutosave, interval);
+      }
+
+      // ============================================
+      // EMULATOR CONTROL
+      // ============================================
+      function resetEmulator() {
+        if (
+          emulator &&
+          confirm("Reset the VM? Unsaved changes will be lost.")
+        ) {
+          bootDetected = false;
+          setLoading(true, "Rebooting...");
+          updateStatus("Rebooting...", false);
+          emulator.restart();
+        }
+      }
+
+      function toggleFullscreen() {
+        const wrapper = document.getElementById("screenWrapper");
+        if (document.fullscreenElement) {
+          document.exitFullscreen();
+        } else if (wrapper) {
+          wrapper.requestFullscreen();
+        }
+      }
+
+      async function attachISO(event) {
+        const file = event.target.files[0];
+        if (!file || !emulator) return;
+
+        try {
+          let buffer = await file.arrayBuffer();
+          let data = new Uint8Array(buffer);
+
+          // Check if encrypted
+          if (isEncryptedFormat(data) && encryptionKey) {
+            data = await decryptAsset(data.slice(6), encryptionKey);
+            buffer = data.buffer;
+          }
+
+          await emulator.set_cdrom({ buffer: buffer });
+
+          const mountPath =
+            activeConfig?.vm?.startup_iso_mount_path || "/mnt/cdrom";
+          const mountCommands = `
+mkdir -p ${mountPath}
+mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "ISO mounted at ${mountPath}"
+`;
+          emulator.serial0_send(mountCommands);
+
+          showToast(`ISO attached and mounted at ${mountPath}`, "success");
+        } catch (error) {
+          console.error("Failed to attach ISO:", error);
+          showToast("Failed to attach ISO", "error");
+        }
+        event.target.value = "";
+      }
+
+      async function loadStartupISO() {
+        const isoUrl = activeConfig?.vm?.startup_iso_url;
+        if (!isoUrl) return;
+
+        try {
+          setLoading(true, "Loading startup image...");
+
+          const data = await loadAsset(isoUrl);
+          await emulator.set_cdrom({ buffer: data.buffer });
+
+          const mountPath =
+            activeConfig?.vm?.startup_iso_mount_path || "/mnt/cdrom";
+
+          // Mount after boot completes
+          const mountInterval = setInterval(() => {
+            if (bootDetected) {
+              clearInterval(mountInterval);
+              const mountCommands = `
+mkdir -p ${mountPath}
+mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted at ${mountPath}"
+`;
+              setTimeout(() => emulator.serial0_send(mountCommands), 1000);
+            }
+          }, 500);
+        } catch (error) {
+          console.error("Failed to load startup ISO:", error);
+          showToast("Failed to load startup ISO", "error");
+        }
+      }
+
+      function onBootComplete() {
+        if (bootDetected) return;
+        bootDetected = true;
+
+        setLoading(false);
+        updateStatus("Running", true);
+        setButtonsEnabled(true);
+        startTime = Date.now();
+
+        startRecording();
+        setInterval(updateUptime, 1000);
+        startAutosave();
+        setupMobileKeyboard();
+      }
+
+      let pendingRestore = null;
+
+      async function startEmulator(savedState = null) {
+        const V86Constructor =
+          typeof V86 !== "undefined"
+            ? V86
+            : typeof V86Starter !== "undefined"
+              ? V86Starter
+              : null;
+
+        if (!V86Constructor) {
+          updateStatus("Error: v86 not loaded", false);
+          setLoading(true, "Error: v86 library not found");
+          return;
+        }
+
+        pendingRestore = savedState;
+
+        setLoading(true, savedState ? "Loading VM..." : "Starting VM...");
+        updateStatus("Loading...", false);
+
+        try {
+          const vmConfig = activeConfig.vm;
+
+          const config = {
+            wasm_path: "assets/v86.wasm",
+            memory_size: (vmConfig.memory_mb || 1024) * 1024 * 1024,
+            vga_memory_size: (vmConfig.vga_memory_mb || 8) * 1024 * 1024,
+            screen_container: document.getElementById("screen_container"),
+            bios: { url: vmConfig.bios_url },
+            vga_bios: { url: vmConfig.vga_bios_url },
+            bzimage: { url: vmConfig.bzimage_url },
+            initrd: { url: vmConfig.initrd_url },
+            cmdline: vmConfig.cmdline,
+            autostart: !savedState,
+            disable_keyboard: false,
+            disable_mouse: true,
+          };
+
+          emulator = new V86Constructor(config);
+
+          // Keyboard recording
+          document.addEventListener(
+            "keydown",
+            function (e) {
+              if (sessionRecording.isRecording && !e.repeat) {
+                let key = e.key;
+                if (key === "Enter") key = "\n";
+                else if (key === "Backspace") key = "\b";
+                else if (key === "Tab") key = "\t";
+                else if (key.length > 1) key = `[${key}]`;
+
+                recordKeystroke(key, {
+                  ctrl: e.ctrlKey,
+                  alt: e.altKey,
+                  shift: e.shiftKey,
+                });
+              }
+            },
+            true,
+          );
+
+          emulator.add_listener("emulator-ready", async () => {
+            // Load startup ISO if configured
+            if (activeConfig?.vm?.startup_iso_url) {
+              await loadStartupISO();
+            }
+
+            if (pendingRestore) {
+              const restored = await restoreStateFromData(pendingRestore);
+              pendingRestore = null;
+
+              if (!restored) {
+                setLoading(true, "Booting...");
+                updateStatus("Booting...", false);
+                emulator.run();
+              }
+            } else {
+              setLoading(true, "Booting...");
+              updateStatus("Booting...", false);
+            }
+          });
+
+          // Boot detection
+          let outputBuffer = "";
+          emulator.add_listener("serial0-output-byte", (byte) => {
+            const char = String.fromCharCode(byte);
+            outputBuffer += char;
+            if (outputBuffer.length > 5000) {
+              outputBuffer = outputBuffer.slice(-2500);
+            }
+
+            if (!bootDetected && !pendingRestore) {
+              if (
+                outputBuffer.includes("~ #") ||
+                outputBuffer.includes("/ #") ||
+                outputBuffer.includes("login:") ||
+                outputBuffer.includes("Type 'help'")
+              ) {
+                onBootComplete();
+              }
+            }
+          });
+
+          // Fallback timeout
+          setTimeout(() => {
+            if (!bootDetected && !pendingRestore) onBootComplete();
+          }, 60000);
+        } catch (error) {
+          console.error("Failed to start:", error);
+          updateStatus("Error", false);
+          setLoading(true, "Failed: " + error.message);
+        }
+      }
+
+      // ============================================
+      // MAIN VM START
+      // ============================================
+      async function startVM() {
+        // Setup encryption key if provided
+        if (
+          activeConfig?.encryption?.enabled &&
+          activeConfig?.encryption?.key
+        ) {
+          try {
+            encryptionKey = await deriveKey(activeConfig.encryption.key);
+          } catch (e) {
+            console.error("Failed to derive encryption key:", e);
+          }
+        }
+
+        // Apply branding and features
+        applyBranding(activeConfig);
+        applyFeatureFlags(activeConfig);
+
+        // Hide launcher, show VM
+        hideLauncher();
+
+        // Check for saved state
+        const savedState = await checkForSavedState();
+
+        // Start emulator
+        startEmulator(savedState);
+      }
+
+      // ============================================
+      // INITIALIZATION
+      // ============================================
+      async function init() {
+        // Setup launcher UI
+        setupLauncher();
+
+        // Parse URL parameters
+        const urlParams = parseURLParams();
+
+        // Check for config_url parameter
+        const params = new URLSearchParams(window.location.search);
+
+        if (params.has("config_url")) {
+          try {
+            const remoteConfig = await loadConfigFromURL(
+              params.get("config_url"),
+            );
+            activeConfig = deepMerge(DEFAULT_CONFIG, remoteConfig);
+
+            // Apply URL param overrides
+            if (urlParams) {
+              activeConfig = deepMerge(activeConfig, urlParams);
+            }
+
+            // Auto-start if autostart param is set
+            if (params.get("autostart") === "true") {
+              startVM();
+              return;
+            }
+
+            // Populate textarea with loaded config
+            document.getElementById("configTextarea").value = JSON.stringify(
+              remoteConfig,
+              null,
+              2,
+            );
+            showConfigStatus("✓ Loaded configuration from URL", "success");
+          } catch (e) {
+            showConfigStatus(
+              `⚠️ Failed to load remote config: ${e.message}`,
+              "error",
+            );
+          }
+        } else if (urlParams) {
+          activeConfig = deepMerge(DEFAULT_CONFIG, urlParams);
+
+          // Auto-start if autostart param is set or if significant config provided
+          if (params.get("autostart") === "true") {
+            startVM();
+            return;
+          }
+
+          // Show URL params in textarea
+          document.getElementById("configTextarea").value = JSON.stringify(
+            urlParams,
+            null,
+            2,
+          );
+          showConfigStatus(
+            "✓ Configuration loaded from URL parameters",
+            "success",
+          );
+        }
+
+        // Apply branding to launcher if config available
+        if (activeConfig) {
+          applyBranding(activeConfig);
+        }
+      }
+
+      // Warn before leaving if VM is running
+      window.addEventListener("beforeunload", (e) => {
+        if (emulator && bootDetected) {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      });
+
+      // Start
+      document.addEventListener("DOMContentLoaded", init);
+    </script>
+  </body>
+</html>

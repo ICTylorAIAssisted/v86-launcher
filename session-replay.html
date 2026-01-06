@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Replay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #242424;
+            --bg-tertiary: #2d2d2d;
+            --text-primary: #e0e0e0;
+            --text-secondary: #888;
+            --border-color: #333;
+            --accent: #4a9eff;
+            --input-color: #4ade80;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .title {
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+        
+        .terminal-wrapper {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .terminal-title {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+        
+        .terminal-screen {
+            background: #000;
+            min-height: 500px;
+            max-height: 70vh;
+            overflow-y: auto;
+            overflow-x: auto;
+            padding: 8px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.3;
+            white-space: pre;
+            color: var(--text-primary);
+        }
+        
+        .terminal-screen .output {
+            color: var(--text-primary);
+        }
+        
+        .terminal-screen .input {
+            color: var(--input-color);
+            background: rgba(74, 222, 128, 0.1);
+        }
+        
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 14px;
+            background: var(--text-primary);
+            animation: blink 1s step-end infinite;
+        }
+        
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+        
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            padding: 16px 0;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .btn:hover {
+            background: var(--bg-tertiary);
+            border-color: var(--accent);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #000;
+        }
+        
+        .btn.primary:hover {
+            background: #3b8eef;
+        }
+        
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .speed-control label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        .speed-control select {
+            padding: 6px 10px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.85rem;
+        }
+        
+        .progress-container {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            width: 0%;
+            transition: width 0.1s;
+        }
+        
+        .time-display {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+            min-width: 120px;
+            text-align: center;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 24px;
+            padding: 12px 0;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-color);
+            margin-top: 12px;
+        }
+        
+        .drop-zone {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 48px;
+            text-align: center;
+            margin-bottom: 16px;
+            transition: all 0.2s;
+        }
+        
+        .drop-zone.drag-over {
+            border-color: var(--accent);
+            background: rgba(74, 158, 255, 0.1);
+        }
+        
+        .drop-zone p {
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .legend {
+            display: flex;
+            gap: 16px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+        
+        .legend-color.output {
+            background: var(--text-primary);
+        }
+        
+        .legend-color.input {
+            background: var(--input-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="title">Session Replay</div>
+        </header>
+        
+        <!-- Drop zone for loading files -->
+        <div class="drop-zone" id="dropZone">
+            <p>Drop a session recording file here, or click to select</p>
+            <button class="btn" onclick="document.getElementById('fileInput').click()">Select File</button>
+            <input type="file" id="fileInput" class="hidden" accept=".json" onchange="loadFile(event)">
+        </div>
+        
+        <!-- Player (hidden until file loaded) -->
+        <div id="playerSection" class="hidden">
+            <div class="terminal-wrapper">
+                <div class="terminal-header">
+                    <div class="terminal-title">Session Recording</div>
+                    <div class="legend">
+                        <div class="legend-item">
+                            <div class="legend-color output"></div>
+                            <span>Output</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color input"></div>
+                            <span>Input (keystrokes)</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="terminal-screen" id="terminal"></div>
+            </div>
+            
+            <div class="controls">
+                <button class="btn primary" id="btnPlayPause" onclick="togglePlayPause()">Play</button>
+                <button class="btn" onclick="restart()">Restart</button>
+                <button class="btn" onclick="skipToEnd()">Skip to End</button>
+                
+                <div class="speed-control">
+                    <label for="speedSelect">Speed:</label>
+                    <select id="speedSelect" onchange="setSpeed(this.value)">
+                        <option value="0.25">0.25x</option>
+                        <option value="0.5">0.5x</option>
+                        <option value="1" selected>1x</option>
+                        <option value="2">2x</option>
+                        <option value="4">4x</option>
+                        <option value="8">8x</option>
+                        <option value="16">16x</option>
+                    </select>
+                </div>
+                
+                <div class="progress-container">
+                    <div class="progress-bar" id="progressBar" onclick="seekTo(event)">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                </div>
+                
+                <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
+            </div>
+            
+            <div class="stats">
+                <span id="statEvents">Events: 0</span>
+                <span id="statInputs">Keystrokes: 0</span>
+                <span id="statDuration">Duration: 0:00</span>
+                <span id="statDate">Recorded: -</span>
+            </div>
+        </div>
+        
+        <button class="btn" id="btnLoadAnother" onclick="loadAnother()" style="margin-top: 16px; display: none;">Load Another Recording</button>
+    </div>
+
+    <script>
+        // ============================================
+        // STATE
+        // ============================================
+        let recording = null;
+        let currentIndex = 0;
+        let isPlaying = false;
+        let playbackSpeed = 1;
+        let playbackTimer = null;
+        let startPlaybackTime = 0;
+        let pausedAtTime = 0;
+        
+        // ============================================
+        // FILE LOADING
+        // ============================================
+        const dropZone = document.getElementById('dropZone');
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+        
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+        
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                loadRecordingFile(file);
+            }
+        });
+        
+        function loadFile(event) {
+            const file = event.target.files[0];
+            if (file) {
+                loadRecordingFile(file);
+            }
+        }
+        
+        function loadRecordingFile(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    recording = JSON.parse(e.target.result);
+                    initializePlayer();
+                } catch (err) {
+                    alert('Failed to parse recording file: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        }
+        
+        function loadAnother() {
+            document.getElementById('dropZone').classList.remove('hidden');
+            document.getElementById('playerSection').classList.add('hidden');
+            document.getElementById('btnLoadAnother').style.display = 'none';
+            stop();
+            recording = null;
+        }
+        
+        // ============================================
+        // PLAYER INITIALIZATION
+        // ============================================
+        function initializePlayer() {
+            document.getElementById('dropZone').classList.add('hidden');
+            document.getElementById('playerSection').classList.remove('hidden');
+            document.getElementById('btnLoadAnother').style.display = 'block';
+            
+            // Detect format
+            const isSnapshotFormat = recording.format === 'snapshots' && recording.snapshots;
+            
+            // Calculate stats
+            let duration = recording.duration || 0;
+            let inputCount = 0;
+            let eventCount = 0;
+            
+            if (isSnapshotFormat) {
+                eventCount = recording.snapshots.length;
+                inputCount = recording.keystrokes ? recording.keystrokes.length : 0;
+                if (recording.snapshots.length > 0) {
+                    duration = recording.snapshots[recording.snapshots.length - 1].t;
+                }
+            } else {
+                // Old format
+                eventCount = recording.events ? recording.events.length : 0;
+                inputCount = recording.events ? recording.events.filter(e => e.type === 'input').length : 0;
+                if (recording.events && recording.events.length > 0) {
+                    duration = recording.events[recording.events.length - 1].t;
+                }
+            }
+            
+            document.getElementById('statEvents').textContent = `Snapshots: ${eventCount}`;
+            document.getElementById('statInputs').textContent = `Keystrokes: ${inputCount}`;
+            document.getElementById('statDuration').textContent = `Duration: ${formatTime(duration)}`;
+            document.getElementById('statDate').textContent = `Recorded: ${recording.started ? new Date(recording.started).toLocaleString() : '-'}`;
+            
+            // Reset player state
+            currentIndex = 0;
+            pausedAtTime = 0;
+            isPlaying = false;
+            document.getElementById('terminal').innerHTML = '';
+            updateProgress();
+            updatePlayButton();
+        }
+        
+        // ============================================
+        // PLAYBACK CONTROLS
+        // ============================================
+        function togglePlayPause() {
+            if (isPlaying) {
+                pause();
+            } else {
+                play();
+            }
+        }
+        
+        function play() {
+            if (!recording) return;
+            
+            const isSnapshotFormat = recording.format === 'snapshots';
+            const events = isSnapshotFormat ? recording.snapshots : recording.events;
+            
+            if (currentIndex >= events.length) {
+                restart();
+                return;
+            }
+            
+            isPlaying = true;
+            startPlaybackTime = Date.now() - (pausedAtTime / playbackSpeed);
+            updatePlayButton();
+            scheduleNextEvent();
+        }
+        
+        function pause() {
+            isPlaying = false;
+            if (playbackTimer) {
+                clearTimeout(playbackTimer);
+                playbackTimer = null;
+            }
+            pausedAtTime = getCurrentPlaybackTime();
+            updatePlayButton();
+        }
+        
+        function stop() {
+            pause();
+            currentIndex = 0;
+            pausedAtTime = 0;
+            const terminal = document.getElementById('terminal');
+            terminal.innerHTML = '';
+            updateProgress();
+        }
+        
+        function restart() {
+            stop();
+            play();
+        }
+        
+        function skipToEnd() {
+            pause();
+            
+            const isSnapshotFormat = recording.format === 'snapshots';
+            const events = isSnapshotFormat ? recording.snapshots : recording.events;
+            const terminal = document.getElementById('terminal');
+            
+            // Render all remaining events/snapshots
+            if (isSnapshotFormat) {
+                // For snapshots, just show the last one
+                if (events.length > 0) {
+                    terminal.innerHTML = events[events.length - 1].content;
+                    currentIndex = events.length;
+                }
+            } else {
+                // For old format, render all events
+                while (currentIndex < events.length) {
+                    renderEvent(events[currentIndex]);
+                    currentIndex++;
+                }
+            }
+            
+            pausedAtTime = recording.duration || events[events.length - 1].t;
+            updateProgress();
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        function setSpeed(speed) {
+            const wasPlaying = isPlaying;
+            if (wasPlaying) {
+                pause();
+            }
+            
+            playbackSpeed = parseFloat(speed);
+            
+            if (wasPlaying) {
+                play();
+            }
+        }
+        
+        function seekTo(event) {
+            const progressBar = document.getElementById('progressBar');
+            const rect = progressBar.getBoundingClientRect();
+            const percent = (event.clientX - rect.left) / rect.width;
+            
+            const isSnapshotFormat = recording.format === 'snapshots';
+            const events = isSnapshotFormat ? recording.snapshots : recording.events;
+            const duration = recording.duration || events[events.length - 1].t;
+            const targetTime = percent * duration;
+            
+            const wasPlaying = isPlaying;
+            pause();
+            
+            // Find the appropriate event/snapshot
+            currentIndex = 0;
+            const terminal = document.getElementById('terminal');
+            
+            if (isSnapshotFormat) {
+                // Find the last snapshot before targetTime
+                terminal.innerHTML = '';
+                while (currentIndex < events.length && events[currentIndex].t <= targetTime) {
+                    terminal.innerHTML = events[currentIndex].content;
+                    currentIndex++;
+                }
+            } else {
+                // Reset and replay up to target time
+                terminal.innerHTML = '';
+                while (currentIndex < events.length && events[currentIndex].t <= targetTime) {
+                    renderEvent(events[currentIndex]);
+                    currentIndex++;
+                }
+            }
+            
+            pausedAtTime = targetTime;
+            updateProgress();
+            terminal.scrollTop = terminal.scrollHeight;
+            
+            if (wasPlaying) {
+                play();
+            }
+        }
+        
+        // ============================================
+        // PLAYBACK ENGINE
+        // ============================================
+        function getCurrentPlaybackTime() {
+            if (!isPlaying) {
+                return pausedAtTime;
+            }
+            return (Date.now() - startPlaybackTime) * playbackSpeed;
+        }
+        
+        function scheduleNextEvent() {
+            if (!isPlaying || !recording) return;
+            
+            const isSnapshotFormat = recording.format === 'snapshots';
+            const events = isSnapshotFormat ? recording.snapshots : recording.events;
+            
+            if (currentIndex >= events.length) {
+                pause();
+                return;
+            }
+            
+            const event = events[currentIndex];
+            const currentTime = getCurrentPlaybackTime();
+            const delay = Math.max(0, (event.t - currentTime) / playbackSpeed);
+            
+            playbackTimer = setTimeout(() => {
+                if (isSnapshotFormat) {
+                    renderSnapshot(event);
+                } else {
+                    renderEvent(event);
+                }
+                currentIndex++;
+                updateProgress();
+                scheduleNextEvent();
+            }, delay);
+        }
+        
+        function renderSnapshot(snapshot) {
+            const terminal = document.getElementById('terminal');
+            // Set innerHTML to preserve exact HTML structure and formatting
+            terminal.innerHTML = snapshot.content;
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        function renderEvent(event) {
+            const terminal = document.getElementById('terminal');
+            
+            if (event.type === 'output') {
+                // Handle special characters
+                let char = event.data;
+                
+                if (char === '\r') {
+                    // Carriage return - ignore or handle
+                    return;
+                }
+                
+                if (char === '\b' || char === '\x7f') {
+                    // Backspace - remove last character
+                    const lastSpan = terminal.lastElementChild;
+                    if (lastSpan && lastSpan.textContent.length > 0) {
+                        lastSpan.textContent = lastSpan.textContent.slice(0, -1);
+                    }
+                    return;
+                }
+                
+                // Append output
+                let span = terminal.lastElementChild;
+                if (!span || !span.classList.contains('output')) {
+                    span = document.createElement('span');
+                    span.className = 'output';
+                    terminal.appendChild(span);
+                }
+                span.textContent += char;
+                
+            } else if (event.type === 'input') {
+                // Show input in different color
+                let key = '';
+                
+                // Handle both old format (string) and new format (object)
+                if (typeof event.data === 'string') {
+                    key = event.data;
+                } else if (event.data && event.data.key) {
+                    key = event.data.key;
+                    // Could also show modifiers if desired
+                    // if (event.data.ctrl) key = 'Ctrl+' + key;
+                }
+                
+                // Skip special key indicators for display
+                if (key.startsWith('[') && key.endsWith(']')) {
+                    // Could show special keys differently if desired
+                    return;
+                }
+                
+                if (key === '\b') {
+                    return; // Backspace effect will show in output
+                }
+                
+                let span = terminal.lastElementChild;
+                if (!span || !span.classList.contains('input')) {
+                    span = document.createElement('span');
+                    span.className = 'input';
+                    terminal.appendChild(span);
+                }
+                span.textContent += key;
+            }
+            
+            // Auto-scroll
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+        
+        // ============================================
+        // UI UPDATES
+        // ============================================
+        function updatePlayButton() {
+            const btn = document.getElementById('btnPlayPause');
+            btn.textContent = isPlaying ? 'Pause' : 'Play';
+        }
+        
+        function updateProgress() {
+            if (!recording) return;
+            
+            const isSnapshotFormat = recording.format === 'snapshots';
+            const events = isSnapshotFormat ? recording.snapshots : recording.events;
+            if (!events || events.length === 0) return;
+            
+            const duration = recording.duration || events[events.length - 1].t;
+            const current = getCurrentPlaybackTime();
+            const percent = Math.min(100, (current / duration) * 100);
+            
+            document.getElementById('progressFill').style.width = percent + '%';
+            document.getElementById('timeDisplay').textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+        }
+        
+        function formatTime(ms) {
+            const totalSeconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+        
+        // Update progress display periodically during playback
+        setInterval(() => {
+            if (isPlaying) {
+                updateProgress();
+            }
+        }, 100);
+        
+        // ============================================
+        // KEYBOARD SHORTCUTS
+        // ============================================
+        document.addEventListener('keydown', (e) => {
+            if (!recording) return;
+            
+            if (e.code === 'Space') {
+                e.preventDefault();
+                togglePlayPause();
+            } else if (e.code === 'ArrowLeft') {
+                // Seek back 5 seconds
+                const newTime = Math.max(0, pausedAtTime - 5000);
+                seekToTime(newTime);
+            } else if (e.code === 'ArrowRight') {
+                // Seek forward 5 seconds
+                const isSnapshotFormat = recording.format === 'snapshots';
+                const events = isSnapshotFormat ? recording.snapshots : recording.events;
+                const duration = recording.duration || events[events.length - 1].t;
+                const newTime = Math.min(duration, pausedAtTime + 5000);
+                seekToTime(newTime);
+            }
+        });
+        
+        function seekToTime(targetTime) {
+            const wasPlaying = isPlaying;
+            pause();
+            
+            const isSnapshotFormat = recording.format === 'snapshots';
+            const events = isSnapshotFormat ? recording.snapshots : recording.events;
+            const terminal = document.getElementById('terminal');
+            
+            currentIndex = 0;
+            
+            if (isSnapshotFormat) {
+                terminal.innerHTML = '';
+                while (currentIndex < events.length && events[currentIndex].t <= targetTime) {
+                    terminal.innerHTML = events[currentIndex].content;
+                    currentIndex++;
+                }
+            } else {
+                terminal.innerHTML = '';
+                while (currentIndex < events.length && events[currentIndex].t <= targetTime) {
+                    renderEvent(events[currentIndex]);
+                    currentIndex++;
+                }
+            }
+            
+            pausedAtTime = targetTime;
+            updateProgress();
+            terminal.scrollTop = terminal.scrollHeight;
+            
+            if (wasPlaying) {
+                play();
+            }
+        }
+    </script>
+</body>
+</html>
