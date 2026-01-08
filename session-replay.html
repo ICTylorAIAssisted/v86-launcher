@@ -20,6 +20,7 @@
             --border-color: #333;
             --accent: #4a9eff;
             --input-color: #4ade80;
+            --live-color: #ef4444;
         }
         
         body {
@@ -47,6 +48,40 @@
         .title {
             font-size: 1.1rem;
             font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .live-badge {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            background: var(--live-color);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .live-badge.active {
+            display: inline-flex;
+        }
+        
+        .live-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
         }
         
         .terminal-wrapper {
@@ -54,6 +89,11 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             overflow: hidden;
+        }
+        
+        .terminal-wrapper.live-mode {
+            border-color: var(--live-color);
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.1);
         }
         
         .terminal-header {
@@ -145,6 +185,16 @@
             background: #3b8eef;
         }
         
+        .btn.live {
+            background: var(--live-color);
+            border-color: var(--live-color);
+            color: white;
+        }
+        
+        .btn.live:hover {
+            background: #dc2626;
+        }
+        
         .speed-control {
             display: flex;
             align-items: center;
@@ -202,6 +252,7 @@
             color: var(--text-secondary);
             border-top: 1px solid var(--border-color);
             margin-top: 12px;
+            flex-wrap: wrap;
         }
         
         .drop-zone {
@@ -254,13 +305,104 @@
         .legend-color.input {
             background: var(--input-color);
         }
+        
+        /* Live connection panel */
+        .live-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+        
+        .live-panel h3 {
+            font-size: 1rem;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+        }
+        
+        .live-form {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        
+        .live-form input {
+            flex: 1;
+            min-width: 200px;
+            padding: 10px 14px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+        
+        .live-form input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .live-form input::placeholder {
+            color: var(--text-secondary);
+        }
+        
+        .live-status {
+            margin-top: 12px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        .live-status.connected {
+            color: var(--input-color);
+        }
+        
+        .live-status.error {
+            color: var(--live-color);
+        }
+        
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 20px 0;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+        
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-color);
+        }
+        
+        .divider span {
+            padding: 0 16px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <div class="title">Session Replay</div>
+            <div class="title">
+                Session Replay
+                <span class="live-badge" id="liveBadge">Live</span>
+            </div>
         </header>
+        
+        <!-- Live connection panel -->
+        <div class="live-panel" id="livePanel">
+            <h3>🔴 Connect to Live Session</h3>
+            <div class="live-form">
+                <input type="text" id="sessionIdInput" placeholder="Session ID (e.g., abc1-2def-3ghi)">
+                <input type="text" id="syncUrlInput" placeholder="Sync URL (e.g., https://worker.yourname.workers.dev)">
+                <button class="btn live" onclick="connectLive()">Connect</button>
+            </div>
+            <div class="live-status" id="liveStatus"></div>
+        </div>
+        
+        <div class="divider"><span>OR</span></div>
         
         <!-- Drop zone for loading files -->
         <div class="drop-zone" id="dropZone">
@@ -271,9 +413,9 @@
         
         <!-- Player (hidden until file loaded) -->
         <div id="playerSection" class="hidden">
-            <div class="terminal-wrapper">
+            <div class="terminal-wrapper" id="terminalWrapper">
                 <div class="terminal-header">
-                    <div class="terminal-title">Session Recording</div>
+                    <div class="terminal-title" id="terminalTitle">Session Recording</div>
                     <div class="legend">
                         <div class="legend-item">
                             <div class="legend-color output"></div>
@@ -288,7 +430,7 @@
                 <div class="terminal-screen" id="terminal"></div>
             </div>
             
-            <div class="controls">
+            <div class="controls" id="playbackControls">
                 <button class="btn primary" id="btnPlayPause" onclick="togglePlayPause()">Play</button>
                 <button class="btn" onclick="restart()">Restart</button>
                 <button class="btn" onclick="skipToEnd()">Skip to End</button>
@@ -315,8 +457,15 @@
                 <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
             </div>
             
+            <!-- Live mode controls (hidden in normal mode) -->
+            <div class="controls hidden" id="liveControls">
+                <button class="btn live" onclick="disconnectLive()">Disconnect</button>
+                <button class="btn" onclick="saveLiveSession()">💾 Save Session</button>
+                <span class="time-display" id="liveTimeDisplay">Connected - Waiting for data...</span>
+            </div>
+            
             <div class="stats">
-                <span id="statEvents">Events: 0</span>
+                <span id="statEvents">Snapshots: 0</span>
                 <span id="statInputs">Keystrokes: 0</span>
                 <span id="statDuration">Duration: 0:00</span>
                 <span id="statDate">Recorded: -</span>
@@ -337,6 +486,241 @@
         let playbackTimer = null;
         let startPlaybackTime = 0;
         let pausedAtTime = 0;
+        
+        // Live mode state
+        let liveMode = {
+            active: false,
+            sessionId: null,
+            syncUrl: null,
+            pollInterval: null,
+            snapshotIndex: 0,
+            keystrokeIndex: 0,
+        };
+        
+        // ============================================
+        // INITIALIZATION - Check URL params
+        // ============================================
+        (function init() {
+            const params = new URLSearchParams(window.location.search);
+            
+            // Check for live mode params
+            if (params.get('live') === 'true' || params.get('session')) {
+                const sessionId = params.get('session');
+                const syncUrl = params.get('sync_url');
+                
+                if (sessionId) {
+                    document.getElementById('sessionIdInput').value = sessionId;
+                }
+                if (syncUrl) {
+                    document.getElementById('syncUrlInput').value = syncUrl;
+                }
+                
+                // Auto-connect if both are provided
+                if (sessionId && syncUrl) {
+                    setTimeout(connectLive, 100);
+                }
+            }
+        })();
+        
+        // ============================================
+        // LIVE MODE
+        // ============================================
+        async function connectLive() {
+            const sessionId = document.getElementById('sessionIdInput').value.trim();
+            const syncUrl = document.getElementById('syncUrlInput').value.trim();
+            
+            if (!sessionId || !syncUrl) {
+                setLiveStatus('Please enter both Session ID and Sync URL', 'error');
+                return;
+            }
+            
+            setLiveStatus('Connecting...', '');
+            
+            try {
+                // Test connection
+                const response = await fetch(`${syncUrl}/session/${sessionId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Initialize live mode
+                liveMode.active = true;
+                liveMode.sessionId = sessionId;
+                liveMode.syncUrl = syncUrl;
+                liveMode.snapshotIndex = 0;
+                liveMode.keystrokeIndex = 0;
+                
+                // Initialize recording object
+                recording = {
+                    version: 2,
+                    format: 'snapshots',
+                    config: data.config || {},
+                    snapshots: data.snapshots || [],
+                    keystrokes: data.keystrokes || [],
+                    duration: data.duration || 0,
+                    started: data.created ? new Date(data.created).toISOString() : new Date().toISOString(),
+                };
+                
+                // Update UI
+                document.getElementById('livePanel').classList.add('hidden');
+                document.getElementById('dropZone').classList.add('hidden');
+                document.getElementById('playerSection').classList.remove('hidden');
+                document.getElementById('playbackControls').classList.add('hidden');
+                document.getElementById('liveControls').classList.remove('hidden');
+                document.getElementById('liveBadge').classList.add('active');
+                document.getElementById('terminalWrapper').classList.add('live-mode');
+                document.getElementById('terminalTitle').textContent = `Live: ${sessionId}`;
+                document.getElementById('btnLoadAnother').style.display = 'block';
+                
+                // Show latest snapshot
+                const terminal = document.getElementById('terminal');
+                if (recording.snapshots.length > 0) {
+                    terminal.innerHTML = recording.snapshots[recording.snapshots.length - 1].content;
+                    liveMode.snapshotIndex = recording.snapshots.length;
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+                
+                updateLiveStats();
+                setLiveStatus('Connected', 'connected');
+                
+                // Start polling
+                liveMode.pollInterval = setInterval(pollLiveSession, 1000);
+                
+            } catch (error) {
+                console.error('Connection failed:', error);
+                setLiveStatus(`Connection failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function pollLiveSession() {
+            if (!liveMode.active) return;
+            
+            try {
+                const url = `${liveMode.syncUrl}/session/${liveMode.sessionId}?since=${liveMode.snapshotIndex}&keystrokeSince=${liveMode.keystrokeIndex}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data.exists) {
+                    document.getElementById('liveTimeDisplay').textContent = 'Session not found';
+                    return;
+                }
+                
+                // Append new snapshots
+                if (data.snapshots && data.snapshots.length > 0) {
+                    recording.snapshots.push(...data.snapshots);
+                    liveMode.snapshotIndex = data.totalSnapshots;
+                    
+                    // Show latest snapshot
+                    const terminal = document.getElementById('terminal');
+                    const lastSnapshot = data.snapshots[data.snapshots.length - 1];
+                    terminal.innerHTML = lastSnapshot.content;
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+                
+                // Append new keystrokes
+                if (data.keystrokes && data.keystrokes.length > 0) {
+                    recording.keystrokes.push(...data.keystrokes);
+                    liveMode.keystrokeIndex = data.totalKeystrokes;
+                }
+                
+                recording.duration = data.duration || recording.duration;
+                
+                updateLiveStats();
+                document.getElementById('liveTimeDisplay').textContent = 
+                    `Live - ${formatTime(recording.duration)} elapsed`;
+                
+            } catch (error) {
+                console.error('Poll failed:', error);
+                document.getElementById('liveTimeDisplay').textContent = 'Connection error - retrying...';
+            }
+        }
+        
+        function disconnectLive() {
+            if (liveMode.pollInterval) {
+                clearInterval(liveMode.pollInterval);
+                liveMode.pollInterval = null;
+            }
+            
+            liveMode.active = false;
+            
+            // Switch to playback mode
+            document.getElementById('playbackControls').classList.remove('hidden');
+            document.getElementById('liveControls').classList.add('hidden');
+            document.getElementById('liveBadge').classList.remove('active');
+            document.getElementById('terminalWrapper').classList.remove('live-mode');
+            document.getElementById('terminalTitle').textContent = 'Session Recording';
+            
+            // Initialize normal playback
+            if (recording && recording.snapshots.length > 0) {
+                currentIndex = 0;
+                pausedAtTime = 0;
+                isPlaying = false;
+                document.getElementById('terminal').innerHTML = '';
+                updateProgress();
+                updatePlayButton();
+            }
+        }
+        
+        function updateLiveStats() {
+            document.getElementById('statEvents').textContent = `Snapshots: ${recording.snapshots.length}`;
+            document.getElementById('statInputs').textContent = `Keystrokes: ${recording.keystrokes.length}`;
+            document.getElementById('statDuration').textContent = `Duration: ${formatTime(recording.duration)}`;
+            document.getElementById('statDate').textContent = `Started: ${recording.started ? new Date(recording.started).toLocaleString() : '-'}`;
+        }
+        
+        function setLiveStatus(message, type) {
+            const status = document.getElementById('liveStatus');
+            status.textContent = message;
+            status.className = 'live-status' + (type ? ' ' + type : '');
+        }
+        
+        function saveLiveSession() {
+            if (!recording || !recording.snapshots || recording.snapshots.length === 0) {
+                alert('No session data to save yet');
+                return;
+            }
+            
+            const sessionData = {
+                version: 2,
+                format: 'snapshots',
+                config: recording.config || {},
+                started: recording.started || new Date().toISOString(),
+                duration: recording.duration || 0,
+                snapshots: recording.snapshots,
+                keystrokes: recording.keystrokes || [],
+                savedAt: new Date().toISOString(),
+                sessionId: liveMode.sessionId || 'unknown',
+            };
+            
+            const blob = new Blob([JSON.stringify(sessionData, null, 2)], {
+                type: 'application/json'
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            // Generate filename with session ID and timestamp
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+            const sessionId = liveMode.sessionId || 'session';
+            a.download = `${sessionId}-${timestamp}.json`;
+            
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            // Show confirmation
+            const prevText = document.getElementById('liveTimeDisplay').textContent;
+            document.getElementById('liveTimeDisplay').textContent = `✓ Saved (${recording.snapshots.length} snapshots)`;
+            setTimeout(() => {
+                document.getElementById('liveTimeDisplay').textContent = prevText;
+            }, 2000);
+        }
         
         // ============================================
         // FILE LOADING
@@ -383,20 +767,33 @@
         }
         
         function loadAnother() {
+            // Disconnect live if active
+            if (liveMode.active) {
+                disconnectLive();
+            }
+            
+            document.getElementById('livePanel').classList.remove('hidden');
             document.getElementById('dropZone').classList.remove('hidden');
             document.getElementById('playerSection').classList.add('hidden');
             document.getElementById('btnLoadAnother').style.display = 'none';
+            document.getElementById('liveBadge').classList.remove('active');
+            document.getElementById('terminalWrapper').classList.remove('live-mode');
             stop();
             recording = null;
+            liveMode.active = false;
         }
         
         // ============================================
         // PLAYER INITIALIZATION
         // ============================================
         function initializePlayer() {
+            document.getElementById('livePanel').classList.add('hidden');
             document.getElementById('dropZone').classList.add('hidden');
             document.getElementById('playerSection').classList.remove('hidden');
+            document.getElementById('playbackControls').classList.remove('hidden');
+            document.getElementById('liveControls').classList.add('hidden');
             document.getElementById('btnLoadAnother').style.display = 'block';
+            document.getElementById('terminalTitle').textContent = 'Session Recording';
             
             // Detect format
             const isSnapshotFormat = recording.format === 'snapshots' && recording.snapshots;
@@ -652,13 +1049,10 @@
                     key = event.data;
                 } else if (event.data && event.data.key) {
                     key = event.data.key;
-                    // Could also show modifiers if desired
-                    // if (event.data.ctrl) key = 'Ctrl+' + key;
                 }
                 
                 // Skip special key indicators for display
                 if (key.startsWith('[') && key.endsWith(']')) {
-                    // Could show special keys differently if desired
                     return;
                 }
                 
@@ -720,7 +1114,7 @@
         // KEYBOARD SHORTCUTS
         // ============================================
         document.addEventListener('keydown', (e) => {
-            if (!recording) return;
+            if (!recording || liveMode.active) return;
             
             if (e.code === 'Space') {
                 e.preventDefault();

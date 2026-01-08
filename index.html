@@ -1616,6 +1616,9 @@
           snapshotInterval: null,
         };
 
+        // Initialize session sync for live viewing
+        initSessionSync();
+
         sessionRecording.snapshotInterval = setInterval(
           captureTerminalSnapshot,
           1000,
@@ -2174,6 +2177,25 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
         // Check for config_url parameter
         const params = new URLSearchParams(window.location.search);
 
+        // Quick start - skip launcher entirely with default config
+        if (params.get("quickstart") === "true" || params.get("autostart") === "true") {
+          if (params.has("config_url")) {
+            try {
+              const remoteConfig = await loadConfigFromURL(params.get("config_url"));
+              activeConfig = deepMerge(DEFAULT_CONFIG, remoteConfig);
+            } catch (e) {
+              console.error("Failed to load remote config:", e);
+              activeConfig = DEFAULT_CONFIG;
+            }
+          } else if (urlParams) {
+            activeConfig = deepMerge(DEFAULT_CONFIG, urlParams);
+          } else {
+            activeConfig = DEFAULT_CONFIG;
+          }
+          startVM();
+          return;
+        }
+
         if (params.has("config_url")) {
           try {
             const remoteConfig = await loadConfigFromURL(
@@ -2184,12 +2206,6 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
             // Apply URL param overrides
             if (urlParams) {
               activeConfig = deepMerge(activeConfig, urlParams);
-            }
-
-            // Auto-start if autostart param is set
-            if (params.get("autostart") === "true") {
-              startVM();
-              return;
             }
 
             // Populate textarea with loaded config
@@ -2208,12 +2224,6 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
         } else if (urlParams) {
           activeConfig = deepMerge(DEFAULT_CONFIG, urlParams);
 
-          // Auto-start if autostart param is set or if significant config provided
-          if (params.get("autostart") === "true") {
-            startVM();
-            return;
-          }
-
           // Show URL params in textarea
           document.getElementById("configTextarea").value = JSON.stringify(
             urlParams,
@@ -2231,6 +2241,244 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
           applyBranding(activeConfig);
         }
       }
+
+      // ============================================
+      // SESSION SYNC MODULE
+      // For real-time interview observation
+      // ============================================
+
+      // Configuration - UPDATE workerUrl after deploying your worker
+      const SYNC_CONFIG = {
+        // Your Cloudflare Worker URL (update after deployment)
+        workerUrl: '', // e.g., 'https://v86-session-sync.yourname.workers.dev'
+        
+        // Sync interval in milliseconds
+        syncInterval: 3000,
+        
+        // Enable sync (can be toggled)
+        enabled: false,
+        
+        // Session ID (set via URL param or generated)
+        sessionId: null,
+      };
+
+      // Sync state
+      let syncState = {
+        lastSyncedSnapshotIndex: 0,
+        lastSyncedKeystrokeIndex: 0,
+        syncTimer: null,
+        isSyncing: false,
+      };
+
+      /**
+       * Initialize session sync
+       */
+      function initSessionSync() {
+        // Check URL params for session config
+        const params = new URLSearchParams(window.location.search);
+        
+        // Get or generate session ID
+        SYNC_CONFIG.sessionId = params.get('sync_session') || generateSessionId();
+        
+        // Check if sync is enabled via URL param
+        if (params.get('sync') === 'true' || params.get('sync_session')) {
+          SYNC_CONFIG.enabled = true;
+        }
+        
+        // Get worker URL from param or use default
+        if (params.get('sync_url')) {
+          SYNC_CONFIG.workerUrl = params.get('sync_url');
+        }
+        
+        // Add sync UI
+        addSyncUI();
+        
+        // Start sync if enabled and configured
+        if (SYNC_CONFIG.enabled && SYNC_CONFIG.workerUrl) {
+          startSync();
+        }
+        
+        console.log('Session sync initialized:', {
+          sessionId: SYNC_CONFIG.sessionId,
+          enabled: SYNC_CONFIG.enabled,
+          workerUrl: SYNC_CONFIG.workerUrl ? '(configured)' : '(not set)',
+        });
+      }
+
+      function generateSessionId() {
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let id = '';
+        for (let i = 0; i < 12; i++) {
+          if (i === 4 || i === 8) id += '-';
+          id += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return id;
+      }
+
+      function addSyncUI() {
+        const statusBar = document.querySelector('.status-bar') || document.querySelector('.vm-header');
+        if (!statusBar) return;
+        
+        if (document.getElementById('syncStatus')) return;
+        
+        const syncDiv = document.createElement('div');
+        syncDiv.id = 'syncStatus';
+        syncDiv.className = 'status-item';
+        syncDiv.style.cssText = 'display: flex; align-items: center; gap: 6px; font-size: 0.8rem; padding: 4px 8px; border-radius: 4px;';
+        syncDiv.innerHTML = `
+          <span id="syncDot" style="width: 8px; height: 8px; border-radius: 50%; background: #666;"></span>
+          <span id="syncText">Sync: Off</span>
+        `;
+        
+        statusBar.appendChild(syncDiv);
+        // Click handler disabled - don't expose viewer URL to candidates
+        // syncDiv.onclick = showSyncInfo;
+        
+        // Add pulse animation style
+        const style = document.createElement('style');
+        style.textContent = `
+          @keyframes syncPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // Disabled - don't expose viewer URL to candidates
+      function showSyncInfo() {
+        // Intentionally empty - functionality disabled for candidates
+        return;
+      }
+
+      function getViewerUrl() {
+        const base = window.location.origin + window.location.pathname.replace('index.html', 'session-replay.html');
+        const params = new URLSearchParams({
+          live: 'true',
+          session: SYNC_CONFIG.sessionId,
+        });
+        
+        if (SYNC_CONFIG.workerUrl) {
+          params.set('sync_url', SYNC_CONFIG.workerUrl);
+        }
+        
+        return `${base}?${params.toString()}`;
+      }
+
+      function startSync() {
+        if (!SYNC_CONFIG.workerUrl) {
+          console.warn('Sync worker URL not configured');
+          updateSyncStatus('error', 'Not configured');
+          return;
+        }
+        
+        if (syncState.syncTimer) {
+          clearInterval(syncState.syncTimer);
+        }
+        
+        SYNC_CONFIG.enabled = true;
+        updateSyncStatus('active', 'Starting...');
+        
+        // Initial sync
+        syncSession();
+        
+        // Periodic sync
+        syncState.syncTimer = setInterval(syncSession, SYNC_CONFIG.syncInterval);
+        
+        console.log('Session sync started:', SYNC_CONFIG.sessionId);
+      }
+
+      function stopSync() {
+        if (syncState.syncTimer) {
+          clearInterval(syncState.syncTimer);
+          syncState.syncTimer = null;
+        }
+        
+        SYNC_CONFIG.enabled = false;
+        updateSyncStatus('off', 'Sync: Off');
+        
+        console.log('Session sync stopped');
+      }
+
+      async function syncSession() {
+        if (syncState.isSyncing || !sessionRecording) return;
+        
+        syncState.isSyncing = true;
+        
+        try {
+          // Get new snapshots since last sync
+          const newSnapshots = sessionRecording.snapshots.slice(syncState.lastSyncedSnapshotIndex);
+          const newKeystrokes = sessionRecording.keystrokes.slice(syncState.lastSyncedKeystrokeIndex);
+          
+          // Skip if nothing new
+          if (newSnapshots.length === 0 && newKeystrokes.length === 0) {
+            syncState.isSyncing = false;
+            return;
+          }
+          
+          updateSyncStatus('syncing', 'Syncing...');
+          
+          const payload = {
+            config: {
+              title: activeConfig?.branding?.title || 'VM Session',
+              started: new Date(sessionRecording.started).toISOString(),
+            },
+            snapshots: newSnapshots,
+            keystrokes: newKeystrokes,
+          };
+          
+          const response = await fetch(`${SYNC_CONFIG.workerUrl}/session/${SYNC_CONFIG.sessionId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          
+          const result = await response.json();
+          
+          // Update sync state
+          syncState.lastSyncedSnapshotIndex = sessionRecording.snapshots.length;
+          syncState.lastSyncedKeystrokeIndex = sessionRecording.keystrokes.length;
+          
+          updateSyncStatus('active', `Live (${result.snapshotCount})`);
+          
+        } catch (error) {
+          console.error('Sync failed:', error);
+          updateSyncStatus('error', 'Sync error');
+        } finally {
+          syncState.isSyncing = false;
+        }
+      }
+
+      function updateSyncStatus(status, text) {
+        const dot = document.getElementById('syncDot');
+        const textEl = document.getElementById('syncText');
+        
+        if (!dot || !textEl) return;
+        
+        const colors = {
+          off: '#666',
+          active: '#22c55e',
+          syncing: '#f59e0b',
+          error: '#ef4444',
+        };
+        
+        dot.style.background = colors[status] || colors.off;
+        textEl.textContent = text;
+        
+        if (status === 'syncing') {
+          dot.style.animation = 'syncPulse 1s infinite';
+        } else {
+          dot.style.animation = 'none';
+        }
+      }
+
+      // ============================================
+      // END SESSION SYNC MODULE
+      // ============================================
 
       // Warn before leaving if VM is running
       window.addEventListener("beforeunload", (e) => {
