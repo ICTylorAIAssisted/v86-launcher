@@ -868,7 +868,7 @@
       type="file"
       id="loadFileInput"
       class="hidden-input"
-      accept=".bin,.state"
+      accept=".bin,.bin.gz,.state,.state.gz,.gz"
       onchange="loadStateFromFile(event)"
     />
     <input
@@ -921,6 +921,7 @@
           cmdline: "console=ttyS0 rw init=/sbin/init rootflags=size=80%",
           startup_iso_url: null,
           startup_iso_mount_path: "/mnt/cdrom",
+          state_url: null,
         },
         features: {
           save_button: true,
@@ -958,6 +959,49 @@
         isRecording: false,
         snapshotInterval: null,
       };
+
+      // ============================================
+      // COMPRESSION MODULE (Gzip via CompressionStream)
+      // ============================================
+
+      /**
+       * Check if data is gzip compressed (magic bytes: 1f 8b)
+       */
+      function isGzipped(data) {
+        return data && data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b;
+      }
+
+      /**
+       * Compress data using gzip
+       */
+      async function compressGzip(data) {
+        const inputData = data instanceof Uint8Array ? data : new Uint8Array(data);
+
+        const stream = new Blob([inputData])
+          .stream()
+          .pipeThrough(new CompressionStream('gzip'));
+
+        const compressedBlob = await new Response(stream).blob();
+        const arrayBuffer = await compressedBlob.arrayBuffer();
+        return new Uint8Array(arrayBuffer);
+      }
+
+      /**
+       * Decompress gzipped data
+       */
+      async function decompressGzip(compressedData) {
+        const inputData = compressedData instanceof Uint8Array
+          ? compressedData
+          : new Uint8Array(compressedData);
+
+        const stream = new Blob([inputData])
+          .stream()
+          .pipeThrough(new DecompressionStream('gzip'));
+
+        const decompressedBlob = await new Response(stream).blob();
+        const arrayBuffer = await decompressedBlob.arrayBuffer();
+        return new Uint8Array(arrayBuffer);
+      }
 
       // ============================================
       // ENCRYPTION MODULE (AES-GCM via Web Crypto)
@@ -1030,14 +1074,21 @@
         }
 
         // Combine chunks
-        const data = new Uint8Array(loaded);
+        let data = new Uint8Array(loaded);
         let offset = 0;
         for (const chunk of chunks) {
           data.set(chunk, offset);
           offset += chunk.length;
         }
 
-        // Check if encrypted
+        // Check if gzipped and decompress
+        if (isGzipped(data)) {
+          console.log(`Decompressing gzipped asset: ${url} (${data.length} bytes)`);
+          data = await decompressGzip(data);
+          console.log(`Decompressed size: ${data.length} bytes`);
+        }
+
+        // Check if encrypted (after potential decompression)
         if (isEncryptedFormat(data) && encryptionKey) {
           // Skip magic header (6 bytes) before decrypting
           return await decryptAsset(data.slice(6), encryptionKey);
@@ -1081,6 +1132,8 @@
           cmdline: "vm.cmdline",
           iso: "vm.startup_iso_url",
           iso_mount: "vm.startup_iso_mount_path",
+          state: "vm.state_url",
+          state_url: "vm.state_url",
           // Features (boolean)
           save: "features.save_button",
           load: "features.load_button",
@@ -1153,12 +1206,14 @@
       function validateConfig(config) {
         const errors = [];
 
-        // Check required VM settings
-        if (!config.vm?.bzimage_url) {
-          errors.push("Missing vm.bzimage_url");
-        }
-        if (!config.vm?.initrd_url) {
-          errors.push("Missing vm.initrd_url");
+        // Check required VM settings (not required if loading from state)
+        if (!config.vm?.state_url) {
+          if (!config.vm?.bzimage_url) {
+            errors.push("Missing vm.bzimage_url");
+          }
+          if (!config.vm?.initrd_url) {
+            errors.push("Missing vm.initrd_url");
+          }
         }
 
         // Validate memory
@@ -1286,6 +1341,7 @@
             bzimage_url: "assets/images/bzImage",
             initrd_url: "assets/images/rootfs.cpio.gz",
             startup_iso_url: "assets/exercise.iso",
+            state_url: null,
           },
           features: {
             attach_iso_button: false,
@@ -1529,6 +1585,7 @@
             timestamp: Date.now(),
             isAuto: isAuto,
             state: state,
+            compressed: true,
           };
 
           const request = store.add(record);
@@ -1595,7 +1652,14 @@
                 : `${Math.floor(ageMinutes / 60)}h ${ageMinutes % 60}m ago`;
 
             if (confirm(`Found saved state from ${ageText}. Restore it?`)) {
-              return latest.state;
+              // Decompress if needed
+              let stateData = latest.state;
+              if (latest.compressed && isGzipped(new Uint8Array(stateData))) {
+                console.log('Decompressing saved state from IndexedDB...');
+                stateData = await decompressGzip(new Uint8Array(stateData));
+                return stateData.buffer;
+              }
+              return stateData;
             }
           }
         } catch (error) {
@@ -1801,26 +1865,65 @@
       // ============================================
       // STATE SAVE/RESTORE
       // ============================================
+
+      /**
+       * Load state from a URL (with progress feedback)
+       */
+      async function loadStateFromURL(url) {
+        try {
+          setLoading(true, "Downloading saved state...");
+          updateStatus("Downloading state...", false);
+
+          const data = await loadAsset(url, (progress) => {
+            const percent = Math.round(progress * 100);
+            setLoading(true, `Downloading state... ${percent}%`);
+          });
+
+          if (!data || data.length === 0) {
+            throw new Error("Empty state file");
+          }
+
+          console.log(`State loaded from URL: ${data.length} bytes`);
+          return data.buffer;
+        } catch (error) {
+          console.error("Failed to load state from URL:", error);
+          showToast(`Failed to load state: ${error.message}`, "error");
+          return null;
+        }
+      }
+
       async function saveStateToFile() {
         if (!emulator) return;
 
         try {
           updateStatus("Saving...", true);
-          const state = await emulator.save_state();
+          setLoading(true, "Saving state...");
 
-          const blob = new Blob([state], { type: "application/octet-stream" });
+          const state = await emulator.save_state();
+          const stateData = new Uint8Array(state);
+
+          // Compress with gzip
+          setLoading(true, "Compressing...");
+          const compressedData = await compressGzip(stateData);
+
+          const compressionRatio = ((1 - compressedData.length / stateData.length) * 100).toFixed(1);
+          console.log(`State compressed: ${stateData.length} -> ${compressedData.length} bytes (${compressionRatio}% reduction)`);
+
+          const blob = new Blob([compressedData], { type: "application/gzip" });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
-          a.download = `vm-state-${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.bin`;
+          a.download = `vm-state-${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.bin.gz`;
           a.click();
           URL.revokeObjectURL(url);
 
+          setLoading(false);
           updateStatus("Running", true);
-          showToast("State saved to file", "success");
+          showToast(`State saved (${(compressedData.length / 1024 / 1024).toFixed(1)} MB, ${compressionRatio}% compressed)`, "success");
         } catch (error) {
           console.error("Save failed:", error);
-          showToast("Failed to save state", "error");
+          setLoading(false);
+          showToast("Failed to save state: " + error.message, "error");
           updateStatus("Running", true);
         }
       }
@@ -1830,13 +1933,25 @@
         if (!file || !emulator) return;
 
         try {
+          setLoading(true, "Loading state file...");
+
           const buffer = await file.arrayBuffer();
-          await restoreStateFromData(buffer);
+          let data = new Uint8Array(buffer);
+
+          // Check if gzipped and decompress
+          if (isGzipped(data)) {
+            setLoading(true, "Decompressing...");
+            console.log(`Decompressing state file: ${data.length} bytes`);
+            data = await decompressGzip(data);
+            console.log(`Decompressed size: ${data.length} bytes`);
+          }
+
+          await restoreStateFromData(data.buffer);
         } catch (error) {
           console.error("Restore failed:", error);
           setLoading(false);
           updateStatus("Running", true);
-          showToast("Failed to restore state", "error");
+          showToast("Failed to restore state: " + error.message, "error");
         }
 
         event.target.value = "";
@@ -1888,11 +2003,17 @@
           statusEl.classList.add("saving");
 
           const state = await emulator.save_state();
-          await saveStateToDB(state, true);
+
+          // Compress autosaves too (stored in IndexedDB)
+          const stateData = new Uint8Array(state);
+          const compressedData = await compressGzip(stateData);
+
+          await saveStateToDB(compressedData, true);
 
           const now = new Date().toLocaleTimeString();
+          const sizeMB = (compressedData.length / 1024 / 1024).toFixed(1);
           document.getElementById("lastSaveDisplay").textContent =
-            `Last auto-save: ${now}`;
+            `Last auto-save: ${now} (${sizeMB} MB)`;
 
           statusEl.textContent = "Auto-save: On";
           statusEl.classList.remove("saving");
@@ -2157,8 +2278,16 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
         // Hide launcher, show VM
         hideLauncher();
 
-        // Check for saved state
-        const savedState = await checkForSavedState();
+        // Check for state URL first (takes priority)
+        let savedState = null;
+        if (activeConfig?.vm?.state_url) {
+          savedState = await loadStateFromURL(activeConfig.vm.state_url);
+        }
+
+        // If no URL state loaded, check for locally saved state
+        if (!savedState) {
+          savedState = await checkForSavedState();
+        }
 
         // Start emulator
         startEmulator(savedState);
@@ -2251,13 +2380,13 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
       const SYNC_CONFIG = {
         // Your Cloudflare Worker URL (update after deployment)
         workerUrl: '', // e.g., 'https://v86-session-sync.yourname.workers.dev'
-        
+
         // Sync interval in milliseconds
         syncInterval: 3000,
-        
+
         // Enable sync (can be toggled)
         enabled: false,
-        
+
         // Session ID (set via URL param or generated)
         sessionId: null,
       };
@@ -2276,28 +2405,28 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
       function initSessionSync() {
         // Check URL params for session config
         const params = new URLSearchParams(window.location.search);
-        
+
         // Get or generate session ID
         SYNC_CONFIG.sessionId = params.get('sync_session') || generateSessionId();
-        
+
         // Check if sync is enabled via URL param
         if (params.get('sync') === 'true' || params.get('sync_session')) {
           SYNC_CONFIG.enabled = true;
         }
-        
+
         // Get worker URL from param or use default
         if (params.get('sync_url')) {
           SYNC_CONFIG.workerUrl = params.get('sync_url');
         }
-        
+
         // Add sync UI
         addSyncUI();
-        
+
         // Start sync if enabled and configured
         if (SYNC_CONFIG.enabled && SYNC_CONFIG.workerUrl) {
           startSync();
         }
-        
+
         console.log('Session sync initialized:', {
           sessionId: SYNC_CONFIG.sessionId,
           enabled: SYNC_CONFIG.enabled,
@@ -2318,9 +2447,9 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
       function addSyncUI() {
         const statusBar = document.querySelector('.status-bar') || document.querySelector('.vm-header');
         if (!statusBar) return;
-        
+
         if (document.getElementById('syncStatus')) return;
-        
+
         const syncDiv = document.createElement('div');
         syncDiv.id = 'syncStatus';
         syncDiv.className = 'status-item';
@@ -2329,11 +2458,11 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
           <span id="syncDot" style="width: 8px; height: 8px; border-radius: 50%; background: #666;"></span>
           <span id="syncText">Sync: Off</span>
         `;
-        
+
         statusBar.appendChild(syncDiv);
         // Click handler disabled - don't expose viewer URL to candidates
         // syncDiv.onclick = showSyncInfo;
-        
+
         // Add pulse animation style
         const style = document.createElement('style');
         style.textContent = `
@@ -2357,11 +2486,11 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
           live: 'true',
           session: SYNC_CONFIG.sessionId,
         });
-        
+
         if (SYNC_CONFIG.workerUrl) {
           params.set('sync_url', SYNC_CONFIG.workerUrl);
         }
-        
+
         return `${base}?${params.toString()}`;
       }
 
@@ -2371,20 +2500,20 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
           updateSyncStatus('error', 'Not configured');
           return;
         }
-        
+
         if (syncState.syncTimer) {
           clearInterval(syncState.syncTimer);
         }
-        
+
         SYNC_CONFIG.enabled = true;
         updateSyncStatus('active', 'Starting...');
-        
+
         // Initial sync
         syncSession();
-        
+
         // Periodic sync
         syncState.syncTimer = setInterval(syncSession, SYNC_CONFIG.syncInterval);
-        
+
         console.log('Session sync started:', SYNC_CONFIG.sessionId);
       }
 
@@ -2393,31 +2522,31 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
           clearInterval(syncState.syncTimer);
           syncState.syncTimer = null;
         }
-        
+
         SYNC_CONFIG.enabled = false;
         updateSyncStatus('off', 'Sync: Off');
-        
+
         console.log('Session sync stopped');
       }
 
       async function syncSession() {
         if (syncState.isSyncing || !sessionRecording) return;
-        
+
         syncState.isSyncing = true;
-        
+
         try {
           // Get new snapshots since last sync
           const newSnapshots = sessionRecording.snapshots.slice(syncState.lastSyncedSnapshotIndex);
           const newKeystrokes = sessionRecording.keystrokes.slice(syncState.lastSyncedKeystrokeIndex);
-          
+
           // Skip if nothing new
           if (newSnapshots.length === 0 && newKeystrokes.length === 0) {
             syncState.isSyncing = false;
             return;
           }
-          
+
           updateSyncStatus('syncing', 'Syncing...');
-          
+
           const payload = {
             config: {
               title: activeConfig?.branding?.title || 'VM Session',
@@ -2426,25 +2555,25 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
             snapshots: newSnapshots,
             keystrokes: newKeystrokes,
           };
-          
+
           const response = await fetch(`${SYNC_CONFIG.workerUrl}/session/${SYNC_CONFIG.sessionId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
-          
+
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
           }
-          
+
           const result = await response.json();
-          
+
           // Update sync state
           syncState.lastSyncedSnapshotIndex = sessionRecording.snapshots.length;
           syncState.lastSyncedKeystrokeIndex = sessionRecording.keystrokes.length;
-          
+
           updateSyncStatus('active', `Live (${result.snapshotCount})`);
-          
+
         } catch (error) {
           console.error('Sync failed:', error);
           updateSyncStatus('error', 'Sync error');
@@ -2456,19 +2585,19 @@ mount -t iso9660 /dev/sr0 ${mountPath} 2>/dev/null && echo "Startup ISO mounted 
       function updateSyncStatus(status, text) {
         const dot = document.getElementById('syncDot');
         const textEl = document.getElementById('syncText');
-        
+
         if (!dot || !textEl) return;
-        
+
         const colors = {
           off: '#666',
           active: '#22c55e',
           syncing: '#f59e0b',
           error: '#ef4444',
         };
-        
+
         dot.style.background = colors[status] || colors.off;
         textEl.textContent = text;
-        
+
         if (status === 'syncing') {
           dot.style.animation = 'syncPulse 1s infinite';
         } else {
